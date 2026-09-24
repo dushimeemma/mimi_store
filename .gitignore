@@ -5,6 +5,7 @@
 .pub-cache/
 .pub/
 build/
+.vercel_flutter/
 android/.gradle/
 android/local.properties
 ios/Pods/

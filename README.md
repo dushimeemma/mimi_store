@@ -27,6 +27,10 @@ Full-stack ecommerce implementation for Android, iOS and web.
 - Payment ledger, pending-payment reconciliation and delivery board
 - Live dashboard metrics, business settings and immutable audit history
 - Responsive phone, tablet, web and desktop interfaces
+- Cloudinary-backed product image upload and replacement cleanup
+- Durable email and WhatsApp notifications for customer and staff operations
+- International country-code phone inputs for accounts, checkout and settings
+- Persisted System, Light and Dark appearance modes
 - Rate limiting, DTO validation, Helmet headers and explicit CORS configuration
 
 ## 1. Configure and start the API
@@ -49,6 +53,8 @@ docker compose up --build
 The API health check is available at `http://localhost:8080/api/v1/health`. In development, Swagger documentation is available at `http://localhost:8080/docs`.
 
 The migration service creates the schema once and seeds the Super Admin plus initial products. Change the bootstrap password immediately after the first controlled deployment. Re-running the seed does not overwrite an existing administrator.
+
+Cloudinary, SMTP email and Meta WhatsApp integrations are optional and disabled until their environment variables are configured. After deploying this release, run `node dist/migrate.js` so the product media metadata and durable notification outbox tables are created. See `docs/NOTIFICATIONS_AND_MEDIA.md` for the exact Render configuration.
 
 ## 2. Generate Flutter platform shells
 

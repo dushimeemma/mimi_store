@@ -6,13 +6,14 @@ import { createHash, randomUUID } from 'crypto';
 
 import { DatabaseService } from './database.service';
 import { LoginDto, RefreshDto, RegisterDto } from './dto';
+import { NotificationService } from './notification.service';
 import { AuthUser, Role } from './security';
 
 interface UserRow { id: string; email: string; full_name: string; phone: string | null; role: Role; password_hash: string; is_active: boolean; }
 
 @Injectable()
 export class AuthService {
-  constructor(private readonly db: DatabaseService, private readonly jwt: JwtService, private readonly config: ConfigService) {}
+  constructor(private readonly db: DatabaseService, private readonly jwt: JwtService, private readonly config: ConfigService,private readonly notifications:NotificationService) {}
 
   async register(dto: RegisterDto) {
     const email = dto.email.trim().toLowerCase();
@@ -20,14 +21,19 @@ export class AuthService {
     if (exists.rowCount) throw new ConflictException('Email is already registered');
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const result = await this.db.query<UserRow>('INSERT INTO users(email,password_hash,full_name,phone) VALUES($1,$2,$3,$4) RETURNING *', [email, passwordHash, dto.fullName.trim(), dto.phone?.trim() || null]);
-    return this.issue(result.rows[0]);
+    const session=await this.issue(result.rows[0]);
+    await this.notifications.user(result.rows[0].id,'account.registered','Welcome to Mimi Store',`Hello ${result.rows[0].full_name},\n\nYour Mimi Store account has been created successfully.`);
+    await this.notifications.admins('account.registered','New Mimi Store customer',`${result.rows[0].full_name} (${email}) created an account.`);
+    return session;
   }
 
   async login(dto: LoginDto) {
     const result = await this.db.query<UserRow>('SELECT * FROM users WHERE lower(email)=$1', [dto.email.trim().toLowerCase()]);
     const user = result.rows[0];
     if (!user || !user.is_active || !(await bcrypt.compare(dto.password, user.password_hash))) throw new UnauthorizedException('Invalid email or password');
-    return this.issue(user);
+    const session=await this.issue(user);
+    await this.notifications.user(user.id,'account.login','New sign-in to Mimi Store',`Hello ${user.full_name},\n\nYour Mimi Store account was signed in. If this was not you, contact store support immediately.`);
+    return session;
   }
 
   async refresh(dto: RefreshDto) {

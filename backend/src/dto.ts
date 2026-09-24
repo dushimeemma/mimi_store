@@ -17,12 +17,15 @@ export class ProductDto {
   @IsInt() @Min(0) @Max(100000000) priceRwf!: number;
   @IsInt() @Min(0) @Max(1000000) stock!: number;
   @IsOptional() @IsUrl({ require_protocol: true }) imageUrl?: string;
+  @IsOptional() @IsString() @Length(1, 300) imagePublicId?: string;
   @IsOptional() @IsString() @Length(1, 40) badge?: string;
   @IsOptional() @IsString() categoryId?: string;
   @IsOptional() @IsString() @Length(1, 80) sku?: string;
   @IsOptional() @IsInt() @Min(0) lowStockThreshold?: number;
   @IsOptional() @IsBoolean() active?: boolean;
 }
+
+export class DeleteMediaDto { @IsString() @Length(1,300) publicId!:string; }
 
 export class CategoryDto {
   @IsString() @Length(2, 80) name!: string;

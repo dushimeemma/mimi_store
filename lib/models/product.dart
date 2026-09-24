@@ -15,6 +15,7 @@ class Product {
     this.active = true,
     this.badge,
     this.imageUrl,
+    this.imagePublicId,
   });
 
   final String id;
@@ -30,20 +31,22 @@ class Product {
   final bool active;
   final String? badge;
   final String? imageUrl;
+  final String? imagePublicId;
 
   factory Product.fromJson(Map<String, dynamic> json) => Product(
-        id: json['id'] as String,
-        name: json['name'] as String,
-        category: json['category'] as String,
-        priceRwf: (json['priceRwf'] as num).toInt(),
-        color: const Color(0xFF164580),
-        stock: (json['stock'] as num).toInt(),
-        description: (json['description'] ?? '').toString(),
-        categoryId: json['categoryId']?.toString(),
-        sku: json['sku']?.toString(),
-        lowStockThreshold: ((json['lowStockThreshold'] ?? 5) as num).toInt(),
-        active: json['active'] as bool? ?? true,
-        badge: json['badge'] as String?,
-        imageUrl: json['imageUrl'] as String?,
-      );
+    id: json['id'] as String,
+    name: json['name'] as String,
+    category: json['category'] as String,
+    priceRwf: (json['priceRwf'] as num).toInt(),
+    color: const Color(0xFF164580),
+    stock: (json['stock'] as num).toInt(),
+    description: (json['description'] ?? '').toString(),
+    categoryId: json['categoryId']?.toString(),
+    sku: json['sku']?.toString(),
+    lowStockThreshold: ((json['lowStockThreshold'] ?? 5) as num).toInt(),
+    active: json['active'] as bool? ?? true,
+    badge: json['badge'] as String?,
+    imageUrl: json['imageUrl'] as String?,
+    imagePublicId: json['imagePublicId'] as String?,
+  );
 }
