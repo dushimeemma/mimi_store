@@ -1,30 +1,36 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:mimi_store/main.dart';
+import 'package:mimi_store/models/product.dart';
+import 'package:mimi_store/state/theme_controller.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  test('product maps Cloudinary media metadata', () {
+    final product = Product.fromJson({
+      'id': 'product-1',
+      'name': 'Kigali Jacket',
+      'category': 'Outerwear',
+      'priceRwf': 45000,
+      'stock': 8,
+      'imageUrl': 'https://res.cloudinary.com/demo/image/upload/jacket.jpg',
+      'imagePublicId': 'mimi-store/products/jacket',
+    });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(product.imageUrl, contains('cloudinary.com'));
+    expect(product.imagePublicId, 'mimi-store/products/jacket');
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  test('theme follows the system until the customer chooses a mode', () async {
+    SharedPreferences.setMockInitialValues({});
+    final controller = ThemeController();
+    await controller.restore();
+    expect(controller.mode, ThemeMode.system);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    await controller.setMode(ThemeMode.dark);
+    expect(controller.mode, ThemeMode.dark);
+
+    final preferences = await SharedPreferences.getInstance();
+    expect(preferences.getString('theme_mode'), 'dark');
   });
 }

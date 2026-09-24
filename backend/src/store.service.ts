@@ -21,6 +21,8 @@ import {
   StoreSettingsDto,
 } from "./dto";
 import { MomoService } from "./momo.service";
+import { MediaService } from "./media.service";
+import { NotificationService } from "./notification.service";
 import { AuthUser } from "./security";
 
 @Injectable()
@@ -28,6 +30,8 @@ export class StoreService {
   constructor(
     private readonly db: DatabaseService,
     private readonly momo: MomoService,
+    private readonly media:MediaService,
+    private readonly notifications:NotificationService,
   ) {}
 
   async dashboard() {
@@ -58,7 +62,7 @@ export class StoreService {
       where.push(`p.category_id=$${params.length}`);
     }
     const result = await this.db.query(
-      `SELECT p.id,p.name,p.category,p.category_id AS "categoryId",p.description,p.price_rwf AS "priceRwf",p.stock,p.image_url AS "imageUrl",p.badge,p.sku,p.low_stock_threshold AS "lowStockThreshold",p.active,p.created_at AS "createdAt",p.updated_at AS "updatedAt" FROM products p ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY p.created_at DESC`,
+      `SELECT p.id,p.name,p.category,p.category_id AS "categoryId",p.description,p.price_rwf AS "priceRwf",p.stock,p.image_url AS "imageUrl",p.image_public_id AS "imagePublicId",p.badge,p.sku,p.low_stock_threshold AS "lowStockThreshold",p.active,p.created_at AS "createdAt",p.updated_at AS "updatedAt" FROM products p ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY p.created_at DESC`,
       params,
     );
     return result.rows;
@@ -89,6 +93,7 @@ export class StoreService {
       await this.audit(user, "category.create", "category", r.rows[0].id, {
         name: dto.name,
       });
+      await this.notifications.admins('category.created','Category created',`${dto.name.trim()} was added to the Mimi Store catalogue.`);
       return r.rows[0];
     } catch (e) {
       if ((e as { code?: string }).code === "23505")
@@ -119,13 +124,14 @@ export class StoreService {
     await this.audit(user, "category.update", "category", id, {
       name: dto.name,
     });
+    await this.notifications.admins('category.updated','Category updated',`${dto.name.trim()} was updated in the Mimi Store catalogue.`);
     return r.rows[0];
   }
 
   async createProduct(dto: ProductDto, user: AuthUser) {
     const category = await this.resolveCategory(dto.categoryId, dto.category);
     const r = await this.db.query(
-      "INSERT INTO products(name,category,category_id,description,price_rwf,stock,image_url,badge,sku,low_stock_threshold,active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",
+      "INSERT INTO products(name,category,category_id,description,price_rwf,stock,image_url,image_public_id,badge,sku,low_stock_threshold,active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id",
       [
         dto.name.trim(),
         category.name,
@@ -134,6 +140,7 @@ export class StoreService {
         dto.priceRwf,
         dto.stock,
         dto.imageUrl ?? null,
+        dto.imagePublicId ?? null,
         dto.badge?.trim() || null,
         dto.sku?.trim() || null,
         dto.lowStockThreshold ?? 5,
@@ -148,6 +155,7 @@ export class StoreService {
     await this.audit(user, "product.create", "product", r.rows[0].id, {
       name: dto.name,
     });
+    await this.notifications.admins('product.created','Product created',`${dto.name.trim()} was created with ${dto.stock} item(s) in stock at ${dto.priceRwf.toLocaleString()} RWF.`);
     return (await this.products(true, dto.name)).find(
       (item: any) => item.id === r.rows[0].id,
     );
@@ -155,13 +163,13 @@ export class StoreService {
 
   async updateProduct(id: string, dto: ProductDto, user: AuthUser) {
     const category = await this.resolveCategory(dto.categoryId, dto.category);
-    const old = await this.db.query<{ stock: number }>(
-      "SELECT stock FROM products WHERE id=$1",
+    const old = await this.db.query<{ stock: number;image_public_id:string|null }>(
+      "SELECT stock,image_public_id FROM products WHERE id=$1",
       [id],
     );
     if (!old.rows[0]) throw new NotFoundException("Product not found");
     const r = await this.db.query(
-      "UPDATE products SET name=$2,category=$3,category_id=$4,description=$5,price_rwf=$6,stock=$7,image_url=$8,badge=$9,sku=$10,low_stock_threshold=$11,active=$12,updated_at=now() WHERE id=$1 RETURNING id",
+      "UPDATE products SET name=$2,category=$3,category_id=$4,description=$5,price_rwf=$6,stock=$7,image_url=$8,image_public_id=$9,badge=$10,sku=$11,low_stock_threshold=$12,active=$13,updated_at=now() WHERE id=$1 RETURNING id",
       [
         id,
         dto.name.trim(),
@@ -171,6 +179,7 @@ export class StoreService {
         dto.priceRwf,
         dto.stock,
         dto.imageUrl ?? null,
+        dto.imagePublicId ?? null,
         dto.badge?.trim() || null,
         dto.sku?.trim() || null,
         dto.lowStockThreshold ?? 5,
@@ -184,6 +193,8 @@ export class StoreService {
         [id, delta, "Product edit adjustment", user.sub],
       );
     await this.audit(user, "product.update", "product", id, { name: dto.name });
+    if(old.rows[0].image_public_id&&old.rows[0].image_public_id!==dto.imagePublicId){try{await this.media.deleteProductImage(old.rows[0].image_public_id);}catch(error){await this.audit(user,'product.image.delete_failed','product',id,{publicId:old.rows[0].image_public_id,error:(error as Error).message});}}
+    await this.notifications.admins('product.updated','Product updated',`${dto.name.trim()} was updated. Current stock: ${dto.stock}; price: ${dto.priceRwf.toLocaleString()} RWF.`);
     return (await this.products(true, dto.name)).find(
       (item: any) => item.id === r.rows[0].id,
     );
@@ -196,7 +207,7 @@ export class StoreService {
   ) {
     if (dto.quantityDelta === 0)
       throw new BadRequestException("Quantity change cannot be zero");
-    return this.db.transaction(async (client) => {
+    const changed=await this.db.transaction(async (client) => {
       const changed = await client.query(
         "UPDATE products SET stock=stock+$2,updated_at=now() WHERE id=$1 AND stock+$2>=0 RETURNING id,stock",
         [id, dto.quantityDelta],
@@ -221,6 +232,9 @@ export class StoreService {
       );
       return changed.rows[0];
     });
+    const product=await this.db.query<{name:string}>('SELECT name FROM products WHERE id=$1',[id]);
+    await this.notifications.admins('inventory.adjusted','Inventory adjusted',`${product.rows[0]?.name??'A product'} stock changed by ${dto.quantityDelta}. Reason: ${dto.reason.trim()}.`);
+    return changed;
   }
 
   async inventoryHistory(productId: string) {
@@ -247,10 +261,12 @@ export class StoreService {
   }
   async updateSettings(dto: PaymentSettingsDto, user: AuthUser) {
     await this.saveSetting("payment", dto, user);
+    await this.notifications.admins('settings.payment.updated','Payment settings updated',`Mimi Store payment and delivery settings were updated.`);
     return dto;
   }
   async updateStoreSettings(dto: StoreSettingsDto, user: AuthUser) {
     await this.saveSetting("store", { ...dto, currency: "RWF" }, user);
+    await this.notifications.admins('settings.store.updated','Store settings updated',`Mimi Store business contact settings were updated.`);
     return dto;
   }
 
@@ -340,6 +356,8 @@ export class StoreService {
       return result.rows[0];
     });
     await this.audit(user, "order.create", "order", order.id, { orderNumber });
+    await this.notifications.user(user.sub,'order.created',`Order ${orderNumber} received`,`We received your order ${orderNumber} for ${order.total_rwf.toLocaleString()} RWF. Complete payment to continue processing.`);
+    await this.notifications.admins('order.created',`New order ${orderNumber}`,`A new order for ${order.total_rwf.toLocaleString()} RWF is awaiting payment.`);
     return order;
   }
 
@@ -386,6 +404,11 @@ export class StoreService {
     await this.audit(user, "delivery.assign", "order", orderId, {
       driverId: dto.driverId,
     });
+    const order=await this.db.query<{order_number:string;customer_id:string;delivery_address:string}>('SELECT order_number,customer_id,delivery_address FROM orders WHERE id=$1',[orderId]);
+    if(order.rows[0]){
+      await this.notifications.user(dto.driverId,'delivery.assigned',`Delivery ${order.rows[0].order_number} assigned`,`You have been assigned order ${order.rows[0].order_number}. Delivery location: ${order.rows[0].delivery_address}. Open Mimi Store to view details and directions.`);
+      await this.notifications.user(order.rows[0].customer_id,'delivery.assigned',`Driver assigned to ${order.rows[0].order_number}`,`A motor driver has been assigned to your order ${order.rows[0].order_number}.`);
+    }
     return r.rows[0];
   }
 
@@ -415,11 +438,12 @@ export class StoreService {
     await this.audit(user, "order.status", "order", orderId, {
       status: dto.status,
     });
+    await this.notifyOrderCustomer(orderId,'order.status',`Order status updated`,`Your order is now ${dto.status.replaceAll('_',' ')}.`);
     return r.rows[0];
   }
 
   async cancelOrder(orderId: string, reason: string, user: AuthUser) {
-    return this.db.transaction(async (client) => {
+    const result=await this.db.transaction(async (client) => {
       const r = await client.query(
         "UPDATE orders SET status='cancelled',cancellation_reason=$2,updated_at=now() WHERE id=$1 AND status NOT IN ('delivered','cancelled') RETURNING order_number",
         [orderId, reason],
@@ -458,6 +482,9 @@ export class StoreService {
       );
       return { success: true };
     });
+    await this.notifyOrderCustomer(orderId,'order.cancelled','Order cancelled',`Your order was cancelled. Reason: ${reason}.`);
+    await this.notifications.admins('order.cancelled','Order cancelled',`Order ${orderId} was cancelled. Reason: ${reason}.`);
+    return result;
   }
 
   async deliveries(user: AuthUser) {
@@ -496,6 +523,7 @@ export class StoreService {
     await this.audit(user, "delivery.status", "delivery", id, {
       status: dto.status,
     });
+    await this.notifyOrderCustomer(r.rows[0].order_id,'delivery.status','Delivery update',`Your delivery is now ${dto.status.replaceAll('_',' ')}${dto.notes?.trim()?`. Note: ${dto.notes.trim()}`:''}.`);
     return { success: true };
   }
 
@@ -541,6 +569,7 @@ export class StoreService {
       "INSERT INTO payments(order_id,provider,provider_reference,amount_rwf,payer_phone) VALUES($1,$2,$3,$4,$5)",
       [order.id, provider, reference, order.total_rwf, order.customer_phone],
     );
+    await this.notifications.user(user.sub,'payment.started',`Payment started for ${order.order_number}`,`Payment of ${order.total_rwf.toLocaleString()} RWF was started for order ${order.order_number}.`);
     if (!this.momo.enabled || settings.paymentMode !== "momo_api") {
       return { reference, status: "manual", momoNumber: settings.momoNumber };
     }
@@ -574,7 +603,7 @@ export class StoreService {
     dto: PaymentClaimDto,
     user: AuthUser,
   ) {
-    return this.db.transaction(async (client) => {
+    const result=await this.db.transaction(async (client) => {
       const reference = dto.transactionReference?.trim() || null;
       const r = await client.query(
         "UPDATE payments p SET status='pending',customer_notified_at=now(),customer_reference=$3,customer_note=$4,reviewed_by=null,reviewed_at=null,review_note=null,updated_at=now() FROM orders o WHERE p.order_id=o.id AND o.id=$1 AND o.customer_id=$2 AND o.status='awaiting_payment' AND p.provider='manual_momo' AND p.status IN ('pending','failed') RETURNING p.id",
@@ -594,6 +623,9 @@ export class StoreService {
       );
       return { success: true, status: "pending_review" };
     });
+    await this.notifications.user(user.sub,'payment.reported','Payment notification received','We received your payment notification. An administrator will verify the business Mobile Money account.');
+    await this.notifications.admins('payment.reported','Customer reported a payment',`A customer reported payment for order ${orderId}${dto.transactionReference?.trim()?` with reference ${dto.transactionReference.trim()}`:''}. Review it in the Payments dashboard.`);
+    return result;
   }
 
   async reviewManualPayment(
@@ -602,7 +634,7 @@ export class StoreService {
     dto: PaymentReviewDto,
     user: AuthUser,
   ) {
-    return this.db.transaction(async (client) => {
+    const result=await this.db.transaction(async (client) => {
       const next = approved ? "successful" : "failed";
       const note = dto.note?.trim() || null;
       const r = await client.query(
@@ -632,6 +664,10 @@ export class StoreService {
       );
       return { success: true, status: next };
     });
+    const payment=await this.db.query<{order_id:string}>('SELECT order_id FROM payments WHERE id=$1',[id]);
+    if(payment.rows[0])await this.notifyOrderCustomer(payment.rows[0].order_id,approved?'payment.approved':'payment.rejected',approved?'Payment approved':'Payment rejected',approved?'Your payment was approved. We will now prepare your order.':`Your payment notification was rejected${dto.note?.trim()?`. Reason: ${dto.note.trim()}`:''}.`);
+    await this.notifications.admins(approved?'payment.approved':'payment.rejected',approved?'Payment approved':'Payment rejected',`Payment ${id} was ${approved?'approved':'rejected'}.`);
+    return result;
   }
   async refreshPayment(reference: string) {
     const status = await this.momo.status(reference);
@@ -641,6 +677,7 @@ export class StoreService {
         : status.status === "FAILED"
           ? "failed"
           : "pending";
+    const previous=await this.db.query<{order_id:string;status:string}>('SELECT order_id,status FROM payments WHERE provider_reference=$1',[reference]);
     await this.db.transaction(async (client) => {
       const payment = await client.query<{ order_id: string }>(
         "UPDATE payments SET status=$2,provider_payload=$3,updated_at=now() WHERE provider_reference=$1 RETURNING order_id",
@@ -652,6 +689,7 @@ export class StoreService {
           [payment.rows[0].order_id],
         );
     });
+    if(previous.rows[0]&&previous.rows[0].status!==mapped&&mapped!=='pending')await this.notifyOrderCustomer(previous.rows[0].order_id,mapped==='successful'?'payment.approved':'payment.failed',mapped==='successful'?'Payment confirmed':'Payment failed',mapped==='successful'?'Your Mobile Money payment was confirmed. We will prepare your order.':'The payment provider reported that your payment failed. Please try again.');
     return { reference, status: mapped };
   }
   async reconcilePayments() {
@@ -695,6 +733,8 @@ export class StoreService {
       [id, role],
     );
     await this.audit(user, "user.role", "user", id, { role });
+    await this.notifications.user(id,'account.role.updated','Your Mimi Store role changed',`Your account role is now ${role.replaceAll('_',' ')}.`);
+    await this.notifications.admins('account.role.updated','User role updated',`${r.rows[0].fullName} now has the ${role.replaceAll('_',' ')} role.`);
     return r.rows[0];
   }
   async updateUserStatus(id: string, isActive: boolean, user: AuthUser) {
@@ -716,6 +756,8 @@ export class StoreService {
         [id],
       );
     await this.audit(user, "user.status", "user", id, { isActive });
+    await this.notifications.user(id,'account.status.updated','Your Mimi Store account status changed',`Your account is now ${isActive?'active':'disabled'}.`);
+    await this.notifications.admins('account.status.updated','User status updated',`User ${id} was ${isActive?'activated':'disabled'}.`);
     return { success: true };
   }
   async auditLogs() {
@@ -740,6 +782,7 @@ export class StoreService {
     if (!r.rows[0]) throw new BadRequestException("Select an active category");
     return r.rows[0];
   }
+  private async notifyOrderCustomer(orderId:string,eventType:string,subject:string,message:string){const order=await this.db.query<{customer_id:string;order_number:string}>('SELECT customer_id,order_number FROM orders WHERE id=$1',[orderId]);if(order.rows[0])await this.notifications.user(order.rows[0].customer_id,eventType,`${subject}: ${order.rows[0].order_number}`,`${message}\n\nOrder: ${order.rows[0].order_number}`);}
   private slug(value: string) {
     return value
       .trim()

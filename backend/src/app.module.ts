@@ -7,7 +7,9 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AuthService } from './auth.service';
 import { DatabaseService } from './database.service';
+import { MediaService } from './media.service';
 import { MomoService } from './momo.service';
+import { NotificationService } from './notification.service';
 import { AccessGuard } from './security';
 import { StoreService } from './store.service';
 
@@ -19,7 +21,7 @@ import { StoreService } from './store.service';
   ],
   controllers: [AppController],
   providers: [
-    DatabaseService, AuthService, StoreService, MomoService,
+    DatabaseService, AuthService, StoreService, MomoService, MediaService, NotificationService,
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AccessGuard },
   ],

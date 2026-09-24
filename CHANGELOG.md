@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0+16
+
+- Added Cloudinary product image upload, secure URL persistence and automatic deletion of replaced images.
+- Added durable email and WhatsApp notification outbox delivery with retry handling.
+- Added customer and administrator notifications across authentication, catalogue, inventory, order, payment, delivery, user and settings operations.
+- Added international phone country selectors to registration, checkout and business settings.
+- Added persisted System, Light and Dark appearance modes across customer and staff screens.
+- Added production Android network and iOS photo-library declarations.
+
 ## 1.1.0+11
 
 - Added configurable MTN MoMo USSD checkout with mobile dialer launch.

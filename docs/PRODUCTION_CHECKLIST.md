@@ -8,6 +8,10 @@
 - Keep `.env`, signing keys and MoMo credentials in a secrets manager.
 - Configure centralized logs, uptime checks, error alerts and database monitoring.
 - Run migrations before each deployment and retain a tested rollback plan.
+- Configure Cloudinary credentials only in the API secret store and test upload, replacement and deletion.
+- Configure SMTP and verify the sender domain before enabling email notifications.
+- Configure a permanent Meta WhatsApp Cloud API token and an approved transactional message template before enabling WhatsApp notifications.
+- Monitor `notification_outbox` failures and retry history through the Super Admin notification endpoint.
 
 ## MTN MoMo
 

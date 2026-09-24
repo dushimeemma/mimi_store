@@ -1,13 +1,16 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 import { AuthService } from './auth.service';
-import { AssignDriverDto, CategoryDto, CreateOrderDto, DeliveryStatusDto, InventoryAdjustmentDto, LoginDto, OrderStatusDto, PaymentClaimDto, PaymentReviewDto, PaymentSettingsDto, ProductDto, RefreshDto, RegisterDto, StoreSettingsDto, UserRoleDto, UserStatusDto } from './dto';
+import { AssignDriverDto, CategoryDto, CreateOrderDto, DeleteMediaDto, DeliveryStatusDto, InventoryAdjustmentDto, LoginDto, OrderStatusDto, PaymentClaimDto, PaymentReviewDto, PaymentSettingsDto, ProductDto, RefreshDto, RegisterDto, StoreSettingsDto, UserRoleDto, UserStatusDto } from './dto';
+import { MediaService } from './media.service';
+import { NotificationService } from './notification.service';
 import { AuthUser, CurrentUser, Public, Roles } from './security';
 import { StoreService } from './store.service';
 
 @Controller()
 export class AppController {
-  constructor(private readonly auth: AuthService, private readonly store: StoreService) {}
+  constructor(private readonly auth: AuthService, private readonly store: StoreService,private readonly media:MediaService,private readonly notifications:NotificationService) {}
 
   @Public() @Get('health') health() { return { status: 'ok', service: 'mimi-store-api' }; }
   @Public() @Post('auth/register') register(@Body() dto: RegisterDto) { return this.auth.register(dto); }
@@ -24,6 +27,8 @@ export class AppController {
   @Roles('admin','super_admin') @Get('admin/products') adminProducts(@Query('search') search='',@Query('categoryId') categoryId='') { return this.store.products(true,search,categoryId); }
   @Roles('admin','super_admin') @Post('admin/products') createProduct(@Body() dto: ProductDto,@CurrentUser() user:AuthUser) { return this.store.createProduct(dto,user); }
   @Roles('admin','super_admin') @Put('admin/products/:id') updateProduct(@Param('id') id: string,@Body() dto: ProductDto,@CurrentUser() user:AuthUser) { return this.store.updateProduct(id,dto,user); }
+  @Roles('admin','super_admin') @Post('admin/media/product-image') @UseInterceptors(FileInterceptor('file',{limits:{fileSize:8*1024*1024}})) uploadProductImage(@UploadedFile() file:Express.Multer.File){return this.media.uploadProductImage(file);}
+  @Roles('admin','super_admin') @Post('admin/media/product-image/delete') deleteProductImage(@Body() dto:DeleteMediaDto){return this.media.deleteProductImage(dto.publicId).then(()=>({success:true}));}
   @Roles('admin','super_admin') @Post('admin/products/:id/inventory') adjustInventory(@Param('id') id:string,@Body() dto:InventoryAdjustmentDto,@CurrentUser() user:AuthUser){return this.store.adjustInventory(id,dto,user);}
   @Roles('admin','super_admin') @Get('admin/products/:id/inventory') inventoryHistory(@Param('id') id:string){return this.store.inventoryHistory(id);}
 
@@ -59,4 +64,5 @@ export class AppController {
   @Roles('super_admin') @Patch('admin/users/:id/role') updateRole(@Param('id') id:string,@Body() dto:UserRoleDto,@CurrentUser() user:AuthUser) { return this.store.updateRole(id,dto.role,user); }
   @Roles('super_admin') @Patch('admin/users/:id/status') updateUserStatus(@Param('id') id:string,@Body() dto:UserStatusDto,@CurrentUser() user:AuthUser){return this.store.updateUserStatus(id,dto.isActive,user);}
   @Roles('super_admin') @Get('admin/audit-logs') auditLogs(){return this.store.auditLogs();}
+  @Roles('super_admin') @Get('admin/notifications') notificationHistory(){return this.notifications.history();}
 }
