@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.2+19
+
+- Made the delivery fee visible in the checkout summary, USSD payment card, mobile confirmation dialog and desktop payment instructions.
+- Ensured the USSD amount comes from the server payment amount and includes both products and delivery.
+
 ## 1.3.1+18
 
 - Made the checkout total explicitly inclusive of products and delivery, with nothing payable to the driver.
