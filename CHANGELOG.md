@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0+17
+
+- Replaced the fixed delivery fee with distance-based pricing, defaulting to 500 RWF for every started 1 km.
+- Added Admin and Super Admin controls for the delivery rate, distance range, dispatch coordinates and free-delivery threshold.
+- Added a server-authoritative delivery quote endpoint and GPS-required checkout pricing.
+- Stored the distance and applied pricing rule on each order for administrative and driver visibility.
+
 ## 1.2.0+16
 
 - Added Cloudinary product image upload, secure URL persistence and automatic deletion of replaced images.

@@ -61,6 +61,9 @@ CREATE TABLE orders (
   delivery_address text NOT NULL,
   latitude numeric(10,7),
   longitude numeric(10,7),
+  delivery_distance_km numeric(10,2),
+  delivery_rate_rwf integer CHECK (delivery_rate_rwf >= 0),
+  delivery_range_km numeric(10,2) CHECK (delivery_range_km > 0),
   customer_phone text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -94,5 +97,5 @@ CREATE TABLE payments (
 CREATE INDEX payments_status_idx ON payments(status);
 
 INSERT INTO app_settings(setting_key, setting_value)
-VALUES ('payment', '{"momoNumber":"+250788440177","deliveryFeeRwf":2500,"freeDeliveryThresholdRwf":100000}'::jsonb)
+VALUES ('payment', '{"momoNumber":"+250788440177","deliveryRateRwf":500,"deliveryRangeKm":1,"deliveryOriginLatitude":-1.9441,"deliveryOriginLongitude":30.0619,"freeDeliveryThresholdRwf":100000}'::jsonb)
 ON CONFLICT (setting_key) DO NOTHING;

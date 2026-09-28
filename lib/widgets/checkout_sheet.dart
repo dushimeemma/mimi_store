@@ -21,8 +21,11 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   final email = TextEditingController();
   String phone = '';
   final location = TextEditingController();
+  final manualLatitude = TextEditingController();
+  final manualLongitude = TextEditingController();
   bool complete = false;
   bool busy = false;
+  bool showManualCoordinates = false;
   bool paymentNoticeSent = false;
   String? error;
   String? orderId;
@@ -31,6 +34,12 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   String? paymentNumber;
   int amountToPay = 0;
   double? latitude, longitude;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.store.clearDeliveryQuote(notify: false);
+  }
 
   bool get _isMobileDevice =>
       !kIsWeb &&
@@ -55,6 +64,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   void dispose() {
     email.dispose();
     location.dispose();
+    manualLatitude.dispose();
+    manualLongitude.dispose();
     super.dispose();
   }
 
@@ -97,6 +108,13 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
           const SizedBox(height: 14),
           TextField(
             controller: location,
+            onChanged: (_) {
+              if (latitude != null || longitude != null) {
+                latitude = null;
+                longitude = null;
+                widget.store.clearDeliveryQuote();
+              }
+            },
             decoration: InputDecoration(
               labelText: 'Delivery location',
               hintText: 'Street, neighbourhood, landmark',
@@ -107,6 +125,53 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
               ),
             ),
           ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => setState(
+                () => showManualCoordinates = !showManualCoordinates,
+              ),
+              icon: const Icon(Icons.pin_drop_outlined),
+              label: Text(
+                showManualCoordinates
+                    ? 'Hide manual coordinates'
+                    : 'Enter coordinates manually',
+              ),
+            ),
+          ),
+          if (showManualCoordinates) ...[
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: manualLatitude,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                      signed: true,
+                    ),
+                    decoration: const InputDecoration(labelText: 'Latitude'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: manualLongitude,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                      signed: true,
+                    ),
+                    decoration: const InputDecoration(labelText: 'Longitude'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: busy ? null : _useManualCoordinates,
+              icon: const Icon(Icons.calculate_outlined),
+              label: const Text('Calculate delivery'),
+            ),
+          ],
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(16),
@@ -133,9 +198,9 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                         'Pay with Mobile Money',
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
-                      Text(
-                        'Send ${formatRwf(widget.store.totalRwf)} to ${widget.store.paymentNumber}',
-                      ),
+                      Text(widget.store.hasDeliveryQuote || widget.store.qualifiesForFreeDelivery
+                          ? 'Send ${formatRwf(widget.store.totalRwf)} to ${widget.store.paymentNumber}'
+                          : 'Pin your location to calculate the amount'),
                     ],
                   ),
                 ),
@@ -143,6 +208,32 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
             ),
           ),
           const SizedBox(height: 18),
+          _priceRow('Subtotal', widget.store.subtotalRwf),
+          const SizedBox(height: 7),
+          Row(
+            children: [
+              const Text('Delivery', style: TextStyle(color: Colors.black54)),
+              const Spacer(),
+              Text(
+                widget.store.qualifiesForFreeDelivery
+                    ? 'Free'
+                    : widget.store.hasDeliveryQuote
+                    ? formatRwf(widget.store.deliveryRwf)
+                    : 'Pin location',
+                style: const TextStyle(color: Colors.black54),
+              ),
+            ],
+          ),
+          if (widget.store.quotedDistanceKm != null) ...[
+            const SizedBox(height: 5),
+            Text(
+              '${widget.store.quotedDistanceKm!.toStringAsFixed(2)} km · '
+              '${formatRwf(widget.store.configuredDeliveryRateRwf)} every '
+              '${widget.store.configuredDeliveryRangeKm.toStringAsFixed(2)} km',
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+          ],
+          const Divider(height: 24),
           Row(
             children: [
               const Text('Total', style: TextStyle(fontSize: 18)),
@@ -178,6 +269,14 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       ),
     );
   }
+
+  Widget _priceRow(String label, int value) => Row(
+    children: [
+      Text(label),
+      const Spacer(),
+      Text(formatRwf(value), style: const TextStyle(fontWeight: FontWeight.w700)),
+    ],
+  );
 
   Widget _paymentStep() => SingleChildScrollView(
     padding: EdgeInsets.only(
@@ -303,6 +402,10 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   );
 
   Future<void> _useLocation() async {
+    setState(() {
+      busy = true;
+      error = null;
+    });
     try {
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied)
@@ -311,6 +414,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
           permission == LocationPermission.deniedForever)
         throw Exception('Location permission was not granted');
       final position = await Geolocator.getCurrentPosition();
+      await widget.store.quoteDelivery(position.latitude, position.longitude);
+      if (!mounted) return;
       setState(() {
         latitude = position.latitude;
         longitude = position.longitude;
@@ -318,7 +423,43 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
             'Pinned location (${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)})';
       });
     } catch (e) {
-      setState(() => error = e.toString());
+      if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> _useManualCoordinates() async {
+    final enteredLatitude = double.tryParse(manualLatitude.text.trim());
+    final enteredLongitude = double.tryParse(manualLongitude.text.trim());
+    if (enteredLatitude == null ||
+        enteredLatitude < -90 ||
+        enteredLatitude > 90 ||
+        enteredLongitude == null ||
+        enteredLongitude < -180 ||
+        enteredLongitude > 180) {
+      setState(() => error = 'Enter valid latitude and longitude values.');
+      return;
+    }
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      await widget.store.quoteDelivery(enteredLatitude, enteredLongitude);
+      if (!mounted) return;
+      setState(() {
+        latitude = enteredLatitude;
+        longitude = enteredLongitude;
+        if (location.text.trim().isEmpty) {
+          location.text =
+              'Pinned location (${enteredLatitude.toStringAsFixed(5)}, ${enteredLongitude.toStringAsFixed(5)})';
+        }
+      });
+    } catch (exception) {
+      if (mounted) setState(() => error = exception.toString());
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -334,12 +475,19 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       );
       return;
     }
+    if (latitude == null || longitude == null) {
+      setState(
+        () => error =
+            'Use the location button to pin the delivery point and calculate the fee.',
+      );
+      return;
+    }
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      amountToPay = widget.store.totalRwf;
+      await widget.store.quoteDelivery(latitude!, longitude!);
       final order = await widget.store.submitOrder(
         address: location.text.trim(),
         phone: phone,
@@ -347,6 +495,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
         longitude: longitude,
       );
       final createdOrderId = order['id'] as String;
+      amountToPay = ((order['total_rwf'] ?? order['totalRwf']) as num).toInt();
       final payment = await widget.store.api.initiatePayment(createdOrderId);
       if (!mounted) return;
       setState(() {

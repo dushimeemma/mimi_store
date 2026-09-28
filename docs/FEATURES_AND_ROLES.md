@@ -15,12 +15,14 @@
 | View payments and reconcile MTN status | — | — | Yes | Yes |
 | Approve/reject reported manual payments | — | — | Yes | Yes |
 | Manage users, roles and account access | — | — | — | Yes |
-| Change payment/business settings | — | — | — | Yes |
+| Change payment and delivery pricing settings | — | — | Yes | Yes |
+| Change business identity settings | — | — | — | Yes |
 | View security audit history | — | — | — | Yes |
 
 ## Operational safeguards
 
 - Totals are recalculated by the API from current database prices.
+- Delivery fees are recalculated by the API from the customer's GPS pin and the configured dispatch point; the client cannot submit a fee.
 - Stock is reserved transactionally when an order is created.
 - Cancelling an eligible order restores stock and records inventory movements.
 - Drivers can update only deliveries assigned to their authenticated account.

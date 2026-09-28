@@ -5,7 +5,8 @@ const test = require('node:test');
 const { plainToInstance } = require('class-transformer');
 const { validate } = require('class-validator');
 
-const { CategoryDto, PaymentClaimDto, ProductDto } = require('../dist/dto');
+const { CategoryDto, PaymentClaimDto, PaymentSettingsDto, ProductDto } = require('../dist/dto');
+const { calculateDeliveryQuote } = require('../dist/delivery-pricing');
 const { MomoService } = require('../dist/momo.service');
 
 test('product validation accepts a complete catalogue item', async () => {
@@ -46,6 +47,47 @@ test('manual payment notification accepts an optional short reference and note',
 test('manual payment notification rejects oversized untrusted input', async () => {
   const value = plainToInstance(PaymentClaimDto, {
     transactionReference: 'x'.repeat(101), note: 'x'.repeat(501),
+  });
+  assert.ok((await validate(value)).length >= 2);
+});
+
+test('delivery pricing charges each started configured distance range', () => {
+  const settings = {
+    deliveryRateRwf: 500,
+    deliveryRangeKm: 1,
+    deliveryOriginLatitude: -1.9441,
+    deliveryOriginLongitude: 30.0619,
+    freeDeliveryThresholdRwf: 100000,
+  };
+  const oneRange = calculateDeliveryQuote(20000, -1.947, 30.0619, settings);
+  assert.equal(oneRange.chargeableRanges, 1);
+  assert.equal(oneRange.deliveryRwf, 500);
+  const multipleRanges = calculateDeliveryQuote(20000, -1.9625, 30.0619, settings);
+  assert.ok(multipleRanges.chargeableRanges >= 2);
+  assert.equal(multipleRanges.deliveryRwf, multipleRanges.chargeableRanges * 500);
+});
+
+test('delivery pricing honours the configured free-delivery threshold', () => {
+  const quote = calculateDeliveryQuote(100000, -1.9625, 30.0619, {
+    deliveryRateRwf: 500,
+    deliveryRangeKm: 1,
+    deliveryOriginLatitude: -1.9441,
+    deliveryOriginLongitude: 30.0619,
+    freeDeliveryThresholdRwf: 100000,
+  });
+  assert.equal(quote.freeDelivery, true);
+  assert.equal(quote.deliveryRwf, 0);
+});
+
+test('delivery settings require a positive range and valid coordinates', async () => {
+  const value = plainToInstance(PaymentSettingsDto, {
+    momoNumber: '+250788440177',
+    deliveryRateRwf: 500,
+    deliveryRangeKm: 0,
+    deliveryOriginLatitude: 100,
+    deliveryOriginLongitude: 30.0619,
+    freeDeliveryThresholdRwf: 100000,
+    paymentMode: 'manual',
   });
   assert.ok((await validate(value)).length >= 2);
 });

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
 
@@ -638,6 +639,16 @@ class _OrderList extends StatelessWidget {
                         ),
                       ),
                       const Divider(),
+                      _OrderAmountRow(
+                        label: 'Subtotal',
+                        amount: ((o['subtotalRwf'] ?? 0) as num).toInt(),
+                      ),
+                      _OrderAmountRow(
+                        label:
+                            'Delivery${o['deliveryDistanceKm'] == null ? '' : ' · ${o['deliveryDistanceKm']} km'}',
+                        amount: ((o['deliveryRwf'] ?? 0) as num).toInt(),
+                      ),
+                      const SizedBox(height: 8),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
@@ -692,6 +703,23 @@ class _OrderList extends StatelessWidget {
           .toList(),
     );
   }
+}
+
+class _OrderAmountRow extends StatelessWidget {
+  const _OrderAmountRow({required this.label, required this.amount});
+  final String label;
+  final int amount;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 4),
+    child: Row(
+      children: [
+        Expanded(child: Text(label)),
+        Text(formatRwf(amount)),
+      ],
+    ),
+  );
 }
 
 class _UsersPage extends StatelessWidget {
@@ -1012,7 +1040,9 @@ class _DeliveriesPage extends StatelessWidget {
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                         subtitle: Text(
-                          '${d['deliveryAddress']}\nDriver: ${d['driverName'] ?? 'Unassigned'}',
+                          '${d['deliveryAddress']}\n'
+                          '${d['deliveryDistanceKm'] == null ? '' : '${d['deliveryDistanceKm']} km · ${formatRwf(((d['deliveryRwf'] ?? 0) as num).toInt())}\n'}'
+                          'Driver: ${d['driverName'] ?? 'Unassigned'}',
                         ),
                         isThreeLine: true,
                         trailing: PopupMenuButton<String>(
@@ -1061,7 +1091,8 @@ class _SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<_SettingsPage> {
-  late final TextEditingController fee, threshold, name, email;
+  late final TextEditingController rate, rangeKm, originLatitude,
+      originLongitude, threshold, name, email;
   late String mode, momoNumber, supportPhone;
   @override
   void initState() {
@@ -1069,8 +1100,17 @@ class _SettingsPageState extends State<_SettingsPage> {
     final s = (widget.store.settings['store'] as Map?) ?? {};
     momoNumber = widget.store.paymentNumber;
     supportPhone = (s['supportPhone'] ?? widget.store.paymentNumber).toString();
-    fee = TextEditingController(
-      text: '${widget.store.configuredDeliveryFeeRwf}',
+    rate = TextEditingController(
+      text: '${widget.store.configuredDeliveryRateRwf}',
+    );
+    rangeKm = TextEditingController(
+      text: '${widget.store.configuredDeliveryRangeKm}',
+    );
+    originLatitude = TextEditingController(
+      text: '${widget.store.deliveryOriginLatitude}',
+    );
+    originLongitude = TextEditingController(
+      text: '${widget.store.deliveryOriginLongitude}',
     );
     threshold = TextEditingController(
       text: '${widget.store.freeDeliveryThresholdRwf}',
@@ -1086,7 +1126,15 @@ class _SettingsPageState extends State<_SettingsPage> {
 
   @override
   void dispose() {
-    for (final c in [fee, threshold, name, email]) {
+    for (final c in [
+      rate,
+      rangeKm,
+      originLatitude,
+      originLongitude,
+      threshold,
+      name,
+      email,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -1131,13 +1179,63 @@ class _SettingsPageState extends State<_SettingsPage> {
                 ),
                 const SizedBox(height: 12),
                 TextField(
-                  controller: fee,
+                  controller: rate,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
-                    labelText: 'Delivery fee (RWF)',
+                    labelText: 'Delivery price per range (RWF)',
+                    helperText: 'Default: 500 RWF',
                   ),
                 ),
                 const SizedBox(height: 12),
+                TextField(
+                  controller: rangeKm,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Distance range (km)',
+                    helperText: 'Default: charge the price for every started 1 km',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: originLatitude,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                          signed: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Dispatch latitude',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        controller: originLongitude,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                          signed: true,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: 'Dispatch longitude',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: _useCurrentDispatchLocation,
+                    icon: const Icon(Icons.my_location),
+                    label: const Text('Use current location as dispatch point'),
+                  ),
+                ),
+                const SizedBox(height: 4),
                 TextField(
                   controller: threshold,
                   keyboardType: TextInputType.number,
@@ -1149,13 +1247,14 @@ class _SettingsPageState extends State<_SettingsPage> {
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton(
-                    onPressed: widget.store.role != UserRole.superAdmin
-                        ? null
-                        : () => _run(
+                    onPressed: () => _run(
                             context,
                             () => widget.store.updatePaymentSettings(
                               momoNumber,
-                              int.tryParse(fee.text) ?? 0,
+                              int.tryParse(rate.text) ?? 0,
+                              double.tryParse(rangeKm.text) ?? 0,
+                              double.tryParse(originLatitude.text) ?? 100,
+                              double.tryParse(originLongitude.text) ?? 200,
                               int.tryParse(threshold.text) ?? 0,
                               mode,
                             ),
@@ -1222,6 +1321,30 @@ class _SettingsPageState extends State<_SettingsPage> {
       ),
     ],
   );
+
+  Future<void> _useCurrentDispatchLocation() async {
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        throw Exception('Location permission was not granted');
+      }
+      final position = await Geolocator.getCurrentPosition();
+      if (!mounted) return;
+      setState(() {
+        originLatitude.text = position.latitude.toStringAsFixed(7);
+        originLongitude.text = position.longitude.toStringAsFixed(7);
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+    }
+  }
   String _national(String value) {
     final digits = value.replaceAll(RegExp(r'\D'), '');
     if (digits.startsWith('250')) return digits.substring(3);

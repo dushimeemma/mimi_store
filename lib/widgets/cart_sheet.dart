@@ -162,7 +162,9 @@ class CartSheet extends StatelessWidget {
                     ),
                     const Spacer(),
                     Text(
-                      formatRwf(store.deliveryRwf),
+                      store.qualifiesForFreeDelivery
+                          ? 'Free'
+                          : 'Calculated from location',
                       style: const TextStyle(color: Colors.black54),
                     ),
                   ],
@@ -181,7 +183,9 @@ class CartSheet extends StatelessWidget {
                         builder: (_) => CheckoutSheet(store: store, auth: auth),
                       );
                     },
-                    child: Text('Checkout · ${formatRwf(store.totalRwf)}'),
+                    child: Text(
+                      'Continue to delivery · ${formatRwf(store.subtotalRwf)}',
+                    ),
                   ),
                 ),
               ],

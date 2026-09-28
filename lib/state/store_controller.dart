@@ -12,8 +12,14 @@ class StoreController extends ChangeNotifier {
   UserRole role = UserRole.customer;
   String paymentNumber = '+250 788 440 177';
   String paymentMode = 'manual';
-  int configuredDeliveryFeeRwf = 2500;
+  int configuredDeliveryRateRwf = 500;
+  double configuredDeliveryRangeKm = 1;
+  double deliveryOriginLatitude = -1.9441;
+  double deliveryOriginLongitude = 30.0619;
   int freeDeliveryThresholdRwf = 100000;
+  int? quotedDeliveryRwf;
+  double? quotedDistanceKm;
+  int? quotedChargeableRanges;
   String selectedCategory = 'All';
   String searchQuery = '';
   final Map<String, int> _cart = {};
@@ -50,10 +56,13 @@ class StoreController extends ChangeNotifier {
     0,
     (sum, item) => sum + item.key.priceRwf * item.value,
   );
-  int get deliveryRwf =>
-      subtotalRwf == 0 || subtotalRwf >= freeDeliveryThresholdRwf
+  bool get qualifiesForFreeDelivery =>
+      freeDeliveryThresholdRwf > 0 &&
+      subtotalRwf >= freeDeliveryThresholdRwf;
+  bool get hasDeliveryQuote => quotedDeliveryRwf != null;
+  int get deliveryRwf => subtotalRwf == 0 || qualifiesForFreeDelivery
       ? 0
-      : configuredDeliveryFeeRwf;
+      : (quotedDeliveryRwf ?? 0);
   int get totalRwf => subtotalRwf + deliveryRwf;
   List<Map<String, dynamic>> get drivers => users
       .where((user) => user['role'] == 'driver' && user['isActive'] == true)
@@ -143,6 +152,7 @@ class StoreController extends ChangeNotifier {
   void addToCart(Product product) {
     if (product.stock <= (_cart[product.id] ?? 0)) return;
     _cart[product.id] = (_cart[product.id] ?? 0) + 1;
+    clearDeliveryQuote(notify: false);
     notifyListeners();
   }
 
@@ -153,12 +163,40 @@ class StoreController extends ChangeNotifier {
     } else if (quantity <= product.stock) {
       _cart[product.id] = quantity;
     }
+    clearDeliveryQuote(notify: false);
     notifyListeners();
   }
 
   void clearCart() {
     _cart.clear();
+    clearDeliveryQuote(notify: false);
     notifyListeners();
+  }
+
+  void clearDeliveryQuote({bool notify = true}) {
+    quotedDeliveryRwf = null;
+    quotedDistanceKm = null;
+    quotedChargeableRanges = null;
+    if (notify) notifyListeners();
+  }
+
+  Future<Map<String, dynamic>> quoteDelivery(
+    double latitude,
+    double longitude,
+  ) async {
+    final quote = await api.deliveryQuote(
+      items: cartItems.entries
+          .map((item) => {'productId': item.key.id, 'quantity': item.value})
+          .toList(),
+      latitude: latitude,
+      longitude: longitude,
+    );
+    quotedDeliveryRwf = ((quote['deliveryRwf'] ?? 0) as num).toInt();
+    quotedDistanceKm = ((quote['distanceKm'] ?? 0) as num).toDouble();
+    quotedChargeableRanges =
+        ((quote['chargeableRanges'] ?? 0) as num).toInt();
+    notifyListeners();
+    return quote;
   }
 
   Future<void> saveProduct(Map<String, dynamic> data, {String? id}) async {
@@ -224,11 +262,22 @@ class StoreController extends ChangeNotifier {
 
   Future<void> updatePaymentSettings(
     String number,
-    int fee,
+    int rate,
+    double rangeKm,
+    double originLatitude,
+    double originLongitude,
     int threshold,
     String mode,
   ) async {
-    await api.updatePaymentSettings(number, fee, threshold, mode);
+    await api.updatePaymentSettings(
+      number,
+      rate,
+      rangeKm,
+      originLatitude,
+      originLongitude,
+      threshold,
+      mode,
+    );
     await refreshAdmin();
   }
 
@@ -259,8 +308,17 @@ class StoreController extends ChangeNotifier {
   void _applyPaymentSettings(Map<String, dynamic> value) {
     paymentNumber = value['momoNumber']?.toString() ?? paymentNumber;
     paymentMode = value['paymentMode']?.toString() ?? paymentMode;
-    configuredDeliveryFeeRwf =
-        ((value['deliveryFeeRwf'] ?? configuredDeliveryFeeRwf) as num).toInt();
+    configuredDeliveryRateRwf =
+        ((value['deliveryRateRwf'] ?? configuredDeliveryRateRwf) as num).toInt();
+    configuredDeliveryRangeKm =
+        ((value['deliveryRangeKm'] ?? configuredDeliveryRangeKm) as num)
+            .toDouble();
+    deliveryOriginLatitude =
+        ((value['deliveryOriginLatitude'] ?? deliveryOriginLatitude) as num)
+            .toDouble();
+    deliveryOriginLongitude =
+        ((value['deliveryOriginLongitude'] ?? deliveryOriginLongitude) as num)
+            .toDouble();
     freeDeliveryThresholdRwf =
         ((value['freeDeliveryThresholdRwf'] ?? freeDeliveryThresholdRwf) as num)
             .toInt();

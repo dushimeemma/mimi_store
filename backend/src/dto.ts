@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsLatitude, IsLongitude, IsOptional, IsString, IsUrl, Length, Max, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsLatitude, IsLongitude, IsNumber, IsOptional, IsString, IsUrl, Length, Max, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class RegisterDto {
   @IsEmail() email!: string;
@@ -49,6 +49,11 @@ export class CreateOrderDto {
   @IsOptional() @IsLongitude() longitude?: number;
   @IsString() @Length(8, 20) customerPhone!: string;
 }
+export class DeliveryQuoteDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => OrderItemDto) items!: OrderItemDto[];
+  @IsLatitude() latitude!: number;
+  @IsLongitude() longitude!: number;
+}
 export class AssignDriverDto { @IsString() driverId!: string; }
 export class OrderStatusDto { @IsIn(['ready_for_pickup', 'out_for_delivery', 'delivered', 'cancelled']) status!: string; }
 export class DeliveryStatusDto {
@@ -60,7 +65,10 @@ export class UserRoleDto { @IsIn(['customer','admin','driver']) role!: string; }
 export class UserStatusDto { @IsBoolean() isActive!: boolean; }
 export class PaymentSettingsDto {
   @IsString() @Length(10, 20) momoNumber!: string;
-  @IsInt() @Min(0) deliveryFeeRwf!: number;
+  @IsInt() @Min(0) @Max(1000000) deliveryRateRwf!: number;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.1) @Max(1000) deliveryRangeKm!: number;
+  @IsLatitude() deliveryOriginLatitude!: number;
+  @IsLongitude() deliveryOriginLongitude!: number;
   @IsInt() @Min(0) freeDeliveryThresholdRwf!: number;
   @IsOptional() @IsIn(['manual','momo_api']) paymentMode?: string;
 }

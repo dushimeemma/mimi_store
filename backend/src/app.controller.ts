@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Put, Query, UploadedFile, Us
 import { FileInterceptor } from '@nestjs/platform-express';
 
 import { AuthService } from './auth.service';
-import { AssignDriverDto, CategoryDto, CreateOrderDto, DeleteMediaDto, DeliveryStatusDto, InventoryAdjustmentDto, LoginDto, OrderStatusDto, PaymentClaimDto, PaymentReviewDto, PaymentSettingsDto, ProductDto, RefreshDto, RegisterDto, StoreSettingsDto, UserRoleDto, UserStatusDto } from './dto';
+import { AssignDriverDto, CategoryDto, CreateOrderDto, DeleteMediaDto, DeliveryQuoteDto, DeliveryStatusDto, InventoryAdjustmentDto, LoginDto, OrderStatusDto, PaymentClaimDto, PaymentReviewDto, PaymentSettingsDto, ProductDto, RefreshDto, RegisterDto, StoreSettingsDto, UserRoleDto, UserStatusDto } from './dto';
 import { MediaService } from './media.service';
 import { NotificationService } from './notification.service';
 import { AuthUser, CurrentUser, Public, Roles } from './security';
@@ -22,6 +22,7 @@ export class AppController {
   @Public() @Get('products') products(@Query('search') search='',@Query('categoryId') categoryId='') { return this.store.products(false,search,categoryId); }
   @Public() @Get('categories') categories() { return this.store.categories(false); }
   @Public() @Get('settings/public') settings() { return this.store.settings(); }
+  @Public() @Post('delivery/quote') deliveryQuote(@Body() dto: DeliveryQuoteDto) { return this.store.deliveryQuote(dto); }
 
   @Roles('admin','super_admin') @Get('admin/dashboard') dashboard() { return this.store.dashboard(); }
   @Roles('admin','super_admin') @Get('admin/products') adminProducts(@Query('search') search='',@Query('categoryId') categoryId='') { return this.store.products(true,search,categoryId); }
@@ -56,7 +57,7 @@ export class AppController {
   @Roles('super_admin') @Post('admin/payments/:id/confirm') confirmManual(@Param('id') id:string,@CurrentUser() user:AuthUser){return this.store.reviewManualPayment(id,true,{},user);}
 
   @Roles('admin','super_admin') @Get('admin/settings') allSettings(){return this.store.allSettings();}
-  @Roles('super_admin') @Put('admin/settings/payment') updateSettings(@Body() dto: PaymentSettingsDto,@CurrentUser() user: AuthUser) { return this.store.updateSettings(dto,user); }
+  @Roles('admin','super_admin') @Put('admin/settings/payment') updateSettings(@Body() dto: PaymentSettingsDto,@CurrentUser() user: AuthUser) { return this.store.updateSettings(dto,user); }
   @Roles('super_admin') @Put('admin/settings/store') updateStoreSettings(@Body() dto:StoreSettingsDto,@CurrentUser() user:AuthUser){return this.store.updateStoreSettings(dto,user);}
 
   @Roles('super_admin') @Get('admin/users') users(@Query('role') role='') { return this.store.users(role); }

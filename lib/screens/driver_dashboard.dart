@@ -197,6 +197,16 @@ class _DeliveryCard extends StatelessWidget {
                   label: Text(data['customerPhone']?.toString() ?? ''),
                 ),
                 Chip(label: Text(_label(status))),
+                if (data['deliveryDistanceKm'] != null)
+                  Chip(
+                    avatar: const Icon(Icons.route_outlined, size: 16),
+                    label: Text('${data['deliveryDistanceKm']} km'),
+                  ),
+                Chip(
+                  label: Text(
+                    'Delivery ${formatRwf(((data['deliveryRwf'] ?? 0) as num).toInt())}',
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 12),
