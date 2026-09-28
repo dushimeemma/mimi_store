@@ -47,5 +47,7 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Mimi Store needs photo library access so administrators can upload product images.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Mimi Store uses your location only when you choose to calculate and share a delivery pin.</string>
 </dict>
 </plist>

@@ -645,8 +645,12 @@ class _OrderList extends StatelessWidget {
                       ),
                       _OrderAmountRow(
                         label:
-                            'Delivery${o['deliveryDistanceKm'] == null ? '' : ' · ${o['deliveryDistanceKm']} km'}',
+                            'Delivery included${o['deliveryDistanceKm'] == null ? '' : ' · ${o['deliveryDistanceKm']} km'}',
                         amount: ((o['deliveryRwf'] ?? 0) as num).toInt(),
+                      ),
+                      _OrderAmountRow(
+                        label: 'Inclusive total',
+                        amount: ((o['totalRwf'] ?? 0) as num).toInt(),
                       ),
                       const SizedBox(height: 8),
                       Wrap(
@@ -1041,7 +1045,7 @@ class _DeliveriesPage extends StatelessWidget {
                         ),
                         subtitle: Text(
                           '${d['deliveryAddress']}\n'
-                          '${d['deliveryDistanceKm'] == null ? '' : '${d['deliveryDistanceKm']} km · ${formatRwf(((d['deliveryRwf'] ?? 0) as num).toInt())}\n'}'
+                          '${d['deliveryDistanceKm'] == null ? '' : '${d['deliveryDistanceKm']} km · delivery included in paid total\n'}'
                           'Driver: ${d['driverName'] ?? 'Unassigned'}',
                         ),
                         isThreeLine: true,
@@ -1324,13 +1328,23 @@ class _SettingsPageState extends State<_SettingsPage> {
 
   Future<void> _useCurrentDispatchLocation() async {
     try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception(
+          'Location services are turned off. Enable location and try again.',
+        );
+      }
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        throw Exception('Location permission was not granted');
+      if (permission == LocationPermission.denied) {
+        throw Exception('Location permission was not granted.');
+      }
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception(
+          'Location access is blocked. Enable it for Mimi Store in your phone settings.',
+        );
       }
       final position = await Geolocator.getCurrentPosition();
       if (!mounted) return;

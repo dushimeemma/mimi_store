@@ -16,6 +16,8 @@ Do not enable cleartext HTTP traffic in the release manifest. Use an HTTPS API e
 
 Manual payment uses the external phone dialer through a `tel:` URL. It does not request direct-call or SIM-reading permissions. The app displays phone payment instructions whenever dialing is unavailable.
 
+Android displays the location permission prompt when the customer taps **Use my location**, or when an administrator taps **Use current location as dispatch point**. Only foreground location is requested; background location is not required.
+
 Configure a unique application ID such as `rw.mimistore.app`, upload signing, Play App Signing and a release keystore outside the repository.
 
 ## iOS
@@ -28,6 +30,8 @@ Add this key to `ios/Runner/Info.plist`:
 ```
 
 Set a unique bundle identifier, Apple development team and App Store signing profile in Xcode. The minimum deployment target must satisfy the selected geolocation and secure-storage package versions.
+
+iOS displays this purpose text when the customer or administrator explicitly requests a location. The application does not request continuous or background location access.
 
 ## Secure storage
 

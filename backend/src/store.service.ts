@@ -380,8 +380,8 @@ export class StoreService {
       return result.rows[0];
     });
     await this.audit(user, "order.create", "order", order.id, { orderNumber });
-    await this.notifications.user(user.sub,'order.created',`Order ${orderNumber} received`,`We received your order ${orderNumber} for ${order.total_rwf.toLocaleString()} RWF. Complete payment to continue processing.`);
-    await this.notifications.admins('order.created',`New order ${orderNumber}`,`A new order for ${order.total_rwf.toLocaleString()} RWF is awaiting payment.`);
+    await this.notifications.user(user.sub,'order.created',`Order ${orderNumber} received`,`We received your order ${orderNumber} for ${order.total_rwf.toLocaleString()} RWF, including delivery. Complete the full payment before fulfilment.`);
+    await this.notifications.admins('order.created',`New order ${orderNumber}`,`A new order for ${order.total_rwf.toLocaleString()} RWF, including delivery, is awaiting payment.`);
     return order;
   }
 
@@ -414,7 +414,7 @@ export class StoreService {
     if (!driver.rows[0])
       throw new BadRequestException("Active driver not found");
     const r = await this.db.query(
-      "UPDATE orders SET assigned_driver_id=$2,status='assigned',updated_at=now() WHERE id=$1 AND status IN ('payment_confirmed','ready_for_pickup','assigned') RETURNING *",
+      "UPDATE orders SET assigned_driver_id=$2,status='assigned',updated_at=now() WHERE id=$1 AND status IN ('payment_confirmed','ready_for_pickup','assigned') AND EXISTS (SELECT 1 FROM payments p WHERE p.order_id=orders.id AND p.status='successful') RETURNING *",
       [orderId, dto.driverId],
     );
     if (!r.rows[0])
@@ -455,10 +455,13 @@ export class StoreService {
         ? [orderId, dto.status, user.sub]
         : [orderId, dto.status];
     const r = await this.db.query(
-      `UPDATE orders SET status=$2,updated_at=now() WHERE id=$1 ${condition} RETURNING *`,
+      `UPDATE orders SET status=$2,updated_at=now() WHERE id=$1 AND status NOT IN ('awaiting_payment','cancelled') AND EXISTS (SELECT 1 FROM payments p WHERE p.order_id=orders.id AND p.status='successful') ${condition} RETURNING *`,
       params,
     );
-    if (!r.rows[0]) throw new NotFoundException("Order not found");
+    if (!r.rows[0])
+      throw new BadRequestException(
+        "The inclusive order total must be paid before fulfilment",
+      );
     await this.audit(user, "order.status", "order", orderId, {
       status: dto.status,
     });
@@ -513,9 +516,10 @@ export class StoreService {
 
   async deliveries(user: AuthUser) {
     const params = user.role === "driver" ? [user.sub] : [];
-    const where = user.role === "driver" ? "WHERE dv.driver_id=$1" : "";
+    const driverCondition =
+      user.role === "driver" ? "AND dv.driver_id=$1" : "";
     const r = await this.db.query(
-      `SELECT dv.id,dv.order_id AS "orderId",dv.driver_id AS "driverId",dv.status,dv.notes,dv.proof_url AS "proofUrl",dv.assigned_at AS "assignedAt",dv.picked_up_at AS "pickedUpAt",dv.delivered_at AS "deliveredAt",o.order_number AS "orderNumber",o.delivery_address AS "deliveryAddress",o.latitude,o.longitude,o.delivery_distance_km AS "deliveryDistanceKm",o.delivery_rwf AS "deliveryRwf",o.customer_phone AS "customerPhone",o.total_rwf AS "totalRwf",u.full_name AS "customerName",d.full_name AS "driverName" FROM deliveries dv JOIN orders o ON o.id=dv.order_id JOIN users u ON u.id=o.customer_id LEFT JOIN users d ON d.id=dv.driver_id ${where} ORDER BY CASE WHEN dv.status='delivered' THEN 1 ELSE 0 END,o.created_at DESC`,
+      `SELECT dv.id,dv.order_id AS "orderId",dv.driver_id AS "driverId",dv.status,dv.notes,dv.proof_url AS "proofUrl",dv.assigned_at AS "assignedAt",dv.picked_up_at AS "pickedUpAt",dv.delivered_at AS "deliveredAt",o.order_number AS "orderNumber",o.delivery_address AS "deliveryAddress",o.latitude,o.longitude,o.delivery_distance_km AS "deliveryDistanceKm",o.delivery_rwf AS "deliveryRwf",o.customer_phone AS "customerPhone",o.total_rwf AS "totalRwf",p.amount_rwf AS "paidAmountRwf",p.status AS "paymentStatus",u.full_name AS "customerName",d.full_name AS "driverName" FROM deliveries dv JOIN orders o ON o.id=dv.order_id JOIN payments p ON p.order_id=o.id AND p.status='successful' JOIN users u ON u.id=o.customer_id LEFT JOIN users d ON d.id=dv.driver_id WHERE o.status NOT IN ('awaiting_payment','cancelled') ${driverCondition} ORDER BY CASE WHEN dv.status='delivered' THEN 1 ELSE 0 END,o.created_at DESC`,
       params,
     );
     return r.rows;
@@ -535,10 +539,13 @@ export class StoreService {
         ? [id, dto.status, dto.notes ?? null, dto.proofUrl ?? null, user.sub]
         : [id, dto.status, dto.notes ?? null, dto.proofUrl ?? null];
     const r = await this.db.query(
-      `UPDATE deliveries SET status=$2,notes=coalesce($3,notes),proof_url=coalesce($4,proof_url),picked_up_at=CASE WHEN $2='picked_up' THEN now() ELSE picked_up_at END,delivered_at=CASE WHEN $2='delivered' THEN now() ELSE delivered_at END,updated_at=now() WHERE id=$1 ${condition} RETURNING order_id`,
+      `UPDATE deliveries SET status=$2,notes=coalesce($3,notes),proof_url=coalesce($4,proof_url),picked_up_at=CASE WHEN $2='picked_up' THEN now() ELSE picked_up_at END,delivered_at=CASE WHEN $2='delivered' THEN now() ELSE delivered_at END,updated_at=now() WHERE id=$1 AND EXISTS (SELECT 1 FROM orders o JOIN payments p ON p.order_id=o.id AND p.status='successful' WHERE o.id=deliveries.order_id AND o.status NOT IN ('awaiting_payment','cancelled')) ${condition} RETURNING order_id`,
       params,
     );
-    if (!r.rows[0]) throw new NotFoundException("Delivery not found");
+    if (!r.rows[0])
+      throw new BadRequestException(
+        "Delivery cannot start until the inclusive order total is paid",
+      );
     if (statusOrder)
       await this.db.query(
         "UPDATE orders SET status=$2,updated_at=now() WHERE id=$1",
@@ -571,8 +578,9 @@ export class StoreService {
       reference: string;
       status: string;
       provider: string;
+      amountRwf: number;
     }>(
-      "SELECT provider_reference AS reference,status,provider FROM payments WHERE order_id=$1",
+      'SELECT provider_reference AS reference,status,provider,amount_rwf AS "amountRwf" FROM payments WHERE order_id=$1',
       [order.id],
     );
     if (existing.rows[0])
@@ -583,6 +591,7 @@ export class StoreService {
             ? "manual"
             : existing.rows[0].status,
         momoNumber: settings.momoNumber,
+        includesDelivery: true,
       };
     const reference = randomUUID();
     const provider =
@@ -595,15 +604,26 @@ export class StoreService {
     );
     await this.notifications.user(user.sub,'payment.started',`Payment started for ${order.order_number}`,`Payment of ${order.total_rwf.toLocaleString()} RWF was started for order ${order.order_number}.`);
     if (!this.momo.enabled || settings.paymentMode !== "momo_api") {
-      return { reference, status: "manual", momoNumber: settings.momoNumber };
+      return {
+        reference,
+        status: "manual",
+        momoNumber: settings.momoNumber,
+        amountRwf: order.total_rwf,
+        includesDelivery: true,
+      };
     }
     try {
-      return await this.momo.requestToPay(
+      const payment = await this.momo.requestToPay(
         reference,
         order.total_rwf,
         order.customer_phone,
         order.order_number,
       );
+      return {
+        ...payment,
+        amountRwf: order.total_rwf,
+        includesDelivery: true,
+      };
     } catch (error) {
       await this.db.query(
         "UPDATE payments SET status='failed',provider_payload=$2 WHERE provider_reference=$1",

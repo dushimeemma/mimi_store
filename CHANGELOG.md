@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.1+18
+
+- Made the checkout total explicitly inclusive of products and delivery, with nothing payable to the driver.
+- Restricted driver assignment, fulfilment transitions and delivery records to successfully paid orders.
+- Added Android foreground location permissions and the iOS when-in-use location purpose declaration.
+- Improved runtime location-service and permission guidance for customer checkout and dispatch-point configuration.
+
 ## 1.3.0+17
 
 - Replaced the fixed delivery fee with distance-based pricing, defaulting to 500 RWF for every started 1 km.

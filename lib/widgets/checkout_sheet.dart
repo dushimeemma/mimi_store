@@ -195,7 +195,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'Pay with Mobile Money',
+                        'Pay products + delivery',
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
                       Text(widget.store.hasDeliveryQuote || widget.store.qualifiesForFreeDelivery
@@ -234,6 +234,19 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
             ),
           ],
           const Divider(height: 24),
+          const Row(
+            children: [
+              Icon(Icons.verified_outlined, size: 18, color: Color(0xFF356526)),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'The total below includes delivery. Nothing is payable to the driver.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF356526)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           Row(
             children: [
               const Text('Total', style: TextStyle(fontSize: 18)),
@@ -320,12 +333,16 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'Complete your MTN MoMo payment',
+                  'Pay the full order total before delivery',
                   style: TextStyle(fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 8),
                 Text('Recipient: $_localPaymentNumber'),
                 Text('Amount: ${formatRwf(amountToPay)}'),
+                const Text(
+                  'This amount already includes the delivery fee.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
                 const SizedBox(height: 8),
                 SelectableText(
                   _ussdCode,
@@ -407,12 +424,26 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       error = null;
     });
     try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw Exception(
+          'Location services are turned off. Enable location and try again.',
+        );
+      }
       var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied)
+      if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever)
-        throw Exception('Location permission was not granted');
+      }
+      if (permission == LocationPermission.denied) {
+        throw Exception(
+          'Location permission is required to calculate the delivery price.',
+        );
+      }
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception(
+          'Location access is blocked. Enable it for Mimi Store in your phone settings.',
+        );
+      }
       final position = await Geolocator.getCurrentPosition();
       await widget.store.quoteDelivery(position.latitude, position.longitude);
       if (!mounted) return;

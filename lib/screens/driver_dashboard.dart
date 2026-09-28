@@ -203,8 +203,9 @@ class _DeliveryCard extends StatelessWidget {
                     label: Text('${data['deliveryDistanceKm']} km'),
                   ),
                 Chip(
+                  avatar: const Icon(Icons.verified_outlined, size: 16),
                   label: Text(
-                    'Delivery ${formatRwf(((data['deliveryRwf'] ?? 0) as num).toInt())}',
+                    'Paid total includes ${formatRwf(((data['deliveryRwf'] ?? 0) as num).toInt())} delivery',
                   ),
                 ),
               ],
