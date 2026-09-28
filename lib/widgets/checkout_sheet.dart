@@ -32,6 +32,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   String? orderNumber;
   String? paymentStatus;
   String? paymentNumber;
+  int productSubtotalToPay = 0;
+  int deliveryFeeToPay = 0;
   int amountToPay = 0;
   double? latitude, longitude;
 
@@ -208,21 +210,42 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
             ),
           ),
           const SizedBox(height: 18),
-          _priceRow('Subtotal', widget.store.subtotalRwf),
-          const SizedBox(height: 7),
-          Row(
-            children: [
-              const Text('Delivery', style: TextStyle(color: Colors.black54)),
-              const Spacer(),
-              Text(
-                widget.store.qualifiesForFreeDelivery
-                    ? 'Free'
-                    : widget.store.hasDeliveryQuote
-                    ? formatRwf(widget.store.deliveryRwf)
-                    : 'Pin location',
-                style: const TextStyle(color: Colors.black54),
-              ),
-            ],
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              border: Border.all(color: Theme.of(context).dividerColor),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Payment breakdown',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 12),
+                _priceRow('Products', widget.store.subtotalRwf),
+                const SizedBox(height: 9),
+                Row(
+                  children: [
+                    const Text(
+                      'Delivery fee',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const Spacer(),
+                    Text(
+                      widget.store.qualifiesForFreeDelivery
+                          ? 'Free'
+                          : widget.store.hasDeliveryQuote
+                          ? formatRwf(widget.store.deliveryRwf)
+                          : 'Pin location',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
           if (widget.store.quotedDistanceKm != null) ...[
             const SizedBox(height: 5),
@@ -269,13 +292,23 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
             width: double.infinity,
             height: 52,
             child: FilledButton(
-              onPressed: busy ? null : _submit,
+              onPressed:
+                  busy ||
+                      !(widget.store.hasDeliveryQuote ||
+                          widget.store.qualifiesForFreeDelivery)
+                  ? null
+                  : _submit,
               child: busy
                   ? const SizedBox.square(
                       dimension: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Confirm order & payment'),
+                  : Text(
+                      widget.store.hasDeliveryQuote ||
+                              widget.store.qualifiesForFreeDelivery
+                          ? 'Confirm & pay ${formatRwf(widget.store.totalRwf)}'
+                          : 'Pin location to calculate delivery',
+                    ),
             ),
           ),
         ],
@@ -338,12 +371,21 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                 ),
                 const SizedBox(height: 8),
                 Text('Recipient: $_localPaymentNumber'),
-                Text('Amount: ${formatRwf(amountToPay)}'),
-                const Text(
-                  'This amount already includes the delivery fee.',
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                const SizedBox(height: 12),
+                _paymentAmountRow('Products', productSubtotalToPay),
+                const SizedBox(height: 6),
+                _paymentAmountRow(
+                  'Delivery fee',
+                  deliveryFeeToPay,
+                  emphasize: true,
                 ),
-                const SizedBox(height: 8),
+                const Divider(height: 20),
+                _paymentAmountRow(
+                  'Total loaded into USSD',
+                  amountToPay,
+                  emphasize: true,
+                ),
+                const SizedBox(height: 12),
                 SelectableText(
                   _ussdCode,
                   style: const TextStyle(
@@ -362,7 +404,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
               icon: const Icon(Icons.dialpad),
               label: Text(
                 _isMobileDevice
-                    ? 'Pay with this phone'
+                    ? 'Open USSD · ${formatRwf(amountToPay)}'
                     : 'Show phone payment steps',
               ),
             ),
@@ -416,6 +458,29 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
         ),
       ],
     ),
+  );
+
+  Widget _paymentAmountRow(
+    String label,
+    int amount, {
+    bool emphasize = false,
+  }) => Row(
+    children: [
+      Expanded(
+        child: Text(
+          label,
+          style: TextStyle(
+            fontWeight: emphasize ? FontWeight.w800 : FontWeight.w400,
+          ),
+        ),
+      ),
+      Text(
+        amount == 0 && label == 'Delivery fee' ? 'Free' : formatRwf(amount),
+        style: TextStyle(
+          fontWeight: emphasize ? FontWeight.w900 : FontWeight.w600,
+        ),
+      ),
+    ],
   );
 
   Future<void> _useLocation() async {
@@ -526,10 +591,24 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
         longitude: longitude,
       );
       final createdOrderId = order['id'] as String;
-      amountToPay = ((order['total_rwf'] ?? order['totalRwf']) as num).toInt();
+      productSubtotalToPay =
+          ((order['subtotal_rwf'] ?? order['subtotalRwf']) as num).toInt();
+      deliveryFeeToPay =
+          ((order['delivery_rwf'] ?? order['deliveryRwf']) as num).toInt();
+      final orderTotal =
+          ((order['total_rwf'] ?? order['totalRwf']) as num).toInt();
       final payment = await widget.store.api.initiatePayment(createdOrderId);
+      final paymentAmount =
+          ((payment['amountRwf'] ?? orderTotal) as num).toInt();
+      if (orderTotal != productSubtotalToPay + deliveryFeeToPay ||
+          paymentAmount != orderTotal) {
+        throw Exception(
+          'Unable to verify the inclusive payment total. Please contact Mimi Store before paying.',
+        );
+      }
       if (!mounted) return;
       setState(() {
+        amountToPay = paymentAmount;
         orderId = createdOrderId;
         orderNumber = (order['order_number'] ?? order['orderNumber'] ?? '')
             .toString();
@@ -555,6 +634,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       await _showPhoneInstructions();
       return;
     }
+    final confirmed = await _confirmInclusiveUssdAmount();
+    if (confirmed != true || !mounted) return;
     setState(() {
       busy = true;
       error = null;
@@ -571,6 +652,47 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       if (mounted) setState(() => busy = false);
     }
   }
+
+  Future<bool?> _confirmInclusiveUssdAmount() => showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Confirm amount sent to MTN MoMo'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _paymentAmountRow('Products', productSubtotalToPay),
+          const SizedBox(height: 8),
+          _paymentAmountRow(
+            'Delivery fee',
+            deliveryFeeToPay,
+            emphasize: true,
+          ),
+          const Divider(height: 24),
+          _paymentAmountRow(
+            'USSD total',
+            amountToPay,
+            emphasize: true,
+          ),
+          const SizedBox(height: 12),
+          const Text(
+            'The USSD code is generated with this inclusive total. Do not pay the driver again.',
+            style: TextStyle(fontSize: 12),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton.icon(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          icon: const Icon(Icons.dialpad),
+          label: const Text('Open USSD'),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _showPhoneInstructions() async {
     await showDialog<void>(
@@ -593,7 +715,17 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
               ),
             ),
             const SizedBox(height: 10),
-            Text('Send ${formatRwf(amountToPay)} to $_localPaymentNumber.'),
+            _paymentAmountRow('Products', productSubtotalToPay),
+            const SizedBox(height: 6),
+            _paymentAmountRow(
+              'Delivery fee',
+              deliveryFeeToPay,
+              emphasize: true,
+            ),
+            const Divider(height: 18),
+            _paymentAmountRow('Total to send', amountToPay, emphasize: true),
+            const SizedBox(height: 8),
+            Text('Send the total above to $_localPaymentNumber.'),
             const SizedBox(height: 8),
             const Text(
               'After MTN confirms the transfer, tap “I have paid” so an admin can verify it.',
