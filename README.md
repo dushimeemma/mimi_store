@@ -15,8 +15,8 @@ Full-stack ecommerce implementation for Android, iOS and web.
 - Short-lived access tokens, rotated refresh tokens and secure device storage
 - Backend-enforced roles: Customer, Super Admin, Admin and Motor Driver
 - Server-calculated inclusive order totals (products + delivery) and transactional stock reservation
-- Manual address or device GPS coordinates at checkout
-- Distance-based delivery pricing with an admin-configurable RWF rate, kilometre range and dispatch point
+- Place-name search or device location at checkout, without exposing coordinates to customers
+- Distance-based delivery pricing from each product pickup location, with an admin-configurable RWF rate and kilometre range
 - Manual MTN MoMo USSD checkout with a safe desktop/web fallback
 - Customer “payment sent” notifications and Admin/Super Admin approval or rejection
 - Optional MTN MoMo `requestToPay` and provider-verified payment status for future reactivation
@@ -56,7 +56,7 @@ The migration service creates the schema once and seeds the Super Admin plus ini
 
 Cloudinary, SMTP email and Meta WhatsApp integrations are optional and disabled until their environment variables are configured. After deploying this release, run `node dist/migrate.js` so the product media metadata and durable notification outbox tables are created. See `docs/NOTIFICATIONS_AND_MEDIA.md` for the exact Render configuration.
 
-Delivery is calculated by the API from the dispatch point to the customer's GPS pin. The default rule is 500 RWF for every started 1 km, with the rate, range, dispatch coordinates and free-delivery threshold managed in the Admin dashboard. Migration `005_distance_delivery_pricing.sql` adds the order pricing snapshot fields and replaces the legacy flat fee. Configure the real store dispatch point before accepting production orders.
+Delivery is calculated by the API from each distinct product pickup location to the customer's resolved destination. The default rule is a proportional 500 RWF per 1 km, with the rate, range and free-delivery threshold managed in the Admin dashboard. Product creation accepts a readable pickup place; existing products are migrated to Kabuye Health Center, Kigali (`-1.8795, 30.0708`) by migration `006_product_origins_and_geocoding.sql`. Coordinates remain server-side, while checkout shows resolved place names, distance, delivery fee and the inclusive amount loaded into USSD.
 
 The customer pays one inclusive total before fulfilment. Unpaid orders are excluded from the delivery board, and the API prevents driver assignment or delivery-status changes until payment is successful. Drivers must never collect a separate delivery fee.
 

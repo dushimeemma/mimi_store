@@ -21,11 +21,8 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   final email = TextEditingController();
   String phone = '';
   final location = TextEditingController();
-  final manualLatitude = TextEditingController();
-  final manualLongitude = TextEditingController();
   bool complete = false;
   bool busy = false;
-  bool showManualCoordinates = false;
   bool paymentNoticeSent = false;
   String? error;
   String? orderId;
@@ -66,8 +63,6 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
   void dispose() {
     email.dispose();
     location.dispose();
-    manualLatitude.dispose();
-    manualLongitude.dispose();
     super.dispose();
   }
 
@@ -111,11 +106,9 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
           TextField(
             controller: location,
             onChanged: (_) {
-              if (latitude != null || longitude != null) {
-                latitude = null;
-                longitude = null;
-                widget.store.clearDeliveryQuote();
-              }
+              latitude = null;
+              longitude = null;
+              widget.store.clearDeliveryQuote();
             },
             decoration: InputDecoration(
               labelText: 'Delivery location',
@@ -130,50 +123,11 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
-              onPressed: () => setState(
-                () => showManualCoordinates = !showManualCoordinates,
-              ),
-              icon: const Icon(Icons.pin_drop_outlined),
-              label: Text(
-                showManualCoordinates
-                    ? 'Hide manual coordinates'
-                    : 'Enter coordinates manually',
-              ),
+              onPressed: busy ? null : _useNamedLocation,
+              icon: const Icon(Icons.location_searching),
+              label: const Text('Find location & calculate delivery'),
             ),
           ),
-          if (showManualCoordinates) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: manualLatitude,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                      signed: true,
-                    ),
-                    decoration: const InputDecoration(labelText: 'Latitude'),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    controller: manualLongitude,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                      signed: true,
-                    ),
-                    decoration: const InputDecoration(labelText: 'Longitude'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: busy ? null : _useManualCoordinates,
-              icon: const Icon(Icons.calculate_outlined),
-              label: const Text('Calculate delivery'),
-            ),
-          ],
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(16),
@@ -200,9 +154,9 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                         'Pay products + delivery',
                         style: TextStyle(fontWeight: FontWeight.w800),
                       ),
-                      Text(widget.store.hasDeliveryQuote || widget.store.qualifiesForFreeDelivery
+                      Text(widget.store.hasDeliveryQuote
                           ? 'Send ${formatRwf(widget.store.totalRwf)} to ${widget.store.paymentNumber}'
-                          : 'Pin your location to calculate the amount'),
+                          : 'Find your location to calculate the amount'),
                     ],
                   ),
                 ),
@@ -239,7 +193,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                           ? 'Free'
                           : widget.store.hasDeliveryQuote
                           ? formatRwf(widget.store.deliveryRwf)
-                          : 'Pin location',
+                          : 'Find location',
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                   ],
@@ -250,10 +204,28 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
           if (widget.store.quotedDistanceKm != null) ...[
             const SizedBox(height: 5),
             Text(
-              '${widget.store.quotedDistanceKm!.toStringAsFixed(2)} km · '
-              '${formatRwf(widget.store.configuredDeliveryRateRwf)} every '
-              '${widget.store.configuredDeliveryRangeKm.toStringAsFixed(2)} km',
+              '${widget.store.quotedDistanceKm!.toStringAsFixed(2)} km estimated distance · '
+              '${formatRwf(widget.store.configuredDeliveryRateRwf)} per '
+              '${widget.store.configuredDeliveryRangeKm.toStringAsFixed(2)} km (proportional)',
               style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+          ],
+          if (widget.store.deliveryBreakdown.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            ...widget.store.deliveryBreakdown.map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  'From ${item['originName']} · '
+                  '${((item['distanceKm'] ?? 0) as num).toStringAsFixed(2)} km · '
+                  '${formatRwf(((item['deliveryRwf'] ?? 0) as num).toInt())}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
+            const Text(
+              '© OpenStreetMap contributors',
+              style: TextStyle(fontSize: 11, color: Colors.black54),
             ),
           ],
           const Divider(height: 24),
@@ -293,9 +265,7 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
             height: 52,
             child: FilledButton(
               onPressed:
-                  busy ||
-                      !(widget.store.hasDeliveryQuote ||
-                          widget.store.qualifiesForFreeDelivery)
+                  busy || !widget.store.hasDeliveryQuote
                   ? null
                   : _submit,
               child: busy
@@ -304,10 +274,9 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : Text(
-                      widget.store.hasDeliveryQuote ||
-                              widget.store.qualifiesForFreeDelivery
+                      widget.store.hasDeliveryQuote
                           ? 'Confirm & pay ${formatRwf(widget.store.totalRwf)}'
-                          : 'Pin location to calculate delivery',
+                          : 'Find location to calculate delivery',
                     ),
             ),
           ),
@@ -510,13 +479,16 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
         );
       }
       final position = await Geolocator.getCurrentPosition();
-      await widget.store.quoteDelivery(position.latitude, position.longitude);
+      final quote = await widget.store.quoteDelivery(
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
       if (!mounted) return;
       setState(() {
         latitude = position.latitude;
         longitude = position.longitude;
         location.text =
-            'Pinned location (${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)})';
+            quote['locationName']?.toString() ?? 'Current location';
       });
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
@@ -525,16 +497,10 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
     }
   }
 
-  Future<void> _useManualCoordinates() async {
-    final enteredLatitude = double.tryParse(manualLatitude.text.trim());
-    final enteredLongitude = double.tryParse(manualLongitude.text.trim());
-    if (enteredLatitude == null ||
-        enteredLatitude < -90 ||
-        enteredLatitude > 90 ||
-        enteredLongitude == null ||
-        enteredLongitude < -180 ||
-        enteredLongitude > 180) {
-      setState(() => error = 'Enter valid latitude and longitude values.');
+  Future<void> _useNamedLocation() async {
+    final enteredLocation = location.text.trim();
+    if (enteredLocation.length < 3) {
+      setState(() => error = 'Enter a street, neighbourhood, or landmark.');
       return;
     }
     setState(() {
@@ -542,15 +508,14 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       error = null;
     });
     try {
-      await widget.store.quoteDelivery(enteredLatitude, enteredLongitude);
+      final quote = await widget.store.quoteDelivery(
+        locationName: enteredLocation,
+      );
       if (!mounted) return;
       setState(() {
-        latitude = enteredLatitude;
-        longitude = enteredLongitude;
-        if (location.text.trim().isEmpty) {
-          location.text =
-              'Pinned location (${enteredLatitude.toStringAsFixed(5)}, ${enteredLongitude.toStringAsFixed(5)})';
-        }
+        latitude = null;
+        longitude = null;
+        location.text = quote['locationName']?.toString() ?? enteredLocation;
       });
     } catch (exception) {
       if (mounted) setState(() => error = exception.toString());
@@ -571,10 +536,9 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       );
       return;
     }
-    if (latitude == null || longitude == null) {
+    if (!widget.store.hasDeliveryQuote) {
       setState(
-        () => error =
-            'Use the location button to pin the delivery point and calculate the fee.',
+        () => error = 'Find your delivery location to calculate the fee.',
       );
       return;
     }
@@ -583,7 +547,11 @@ class _CheckoutSheetState extends State<CheckoutSheet> {
       error = null;
     });
     try {
-      await widget.store.quoteDelivery(latitude!, longitude!);
+      await widget.store.quoteDelivery(
+        locationName: latitude == null ? location.text.trim() : null,
+        latitude: latitude,
+        longitude: longitude,
+      );
       final order = await widget.store.submitOrder(
         address: location.text.trim(),
         phone: phone,

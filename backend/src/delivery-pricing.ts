@@ -1,23 +1,34 @@
 export interface DeliveryPricingSettings {
   deliveryRateRwf: number;
   deliveryRangeKm: number;
-  deliveryOriginLatitude: number;
-  deliveryOriginLongitude: number;
   freeDeliveryThresholdRwf: number;
+}
+
+export interface DeliveryOrigin {
+  name: string;
+  latitude: number;
+  longitude: number;
+}
+
+export interface DeliveryBreakdownItem {
+  originName: string;
+  distanceKm: number;
+  deliveryRwf: number;
 }
 
 export interface DeliveryQuote {
   distanceKm: number;
-  chargeableRanges: number;
   deliveryRwf: number;
   deliveryRateRwf: number;
   deliveryRangeKm: number;
   freeDelivery: boolean;
+  breakdown: DeliveryBreakdownItem[];
 }
 
 const earthRadiusKm = 6371.0088;
 
 const radians = (degrees: number) => (degrees * Math.PI) / 180;
+const roundedDistance = (value: number) => Math.round(value * 100) / 100;
 
 export function distanceBetweenKm(
   originLatitude: number,
@@ -44,29 +55,51 @@ export function calculateDeliveryQuote(
   destinationLatitude: number,
   destinationLongitude: number,
   settings: DeliveryPricingSettings,
+  origins: DeliveryOrigin[],
 ): DeliveryQuote {
-  const distanceKm = distanceBetweenKm(
-    settings.deliveryOriginLatitude,
-    settings.deliveryOriginLongitude,
-    destinationLatitude,
-    destinationLongitude,
-  );
   const freeDelivery =
     settings.freeDeliveryThresholdRwf > 0 &&
     subtotalRwf >= settings.freeDeliveryThresholdRwf;
-  const chargeableRanges =
-    freeDelivery || distanceKm === 0
-      ? 0
-      : Math.max(1, Math.ceil(distanceKm / settings.deliveryRangeKm));
+  const uniqueOrigins = new Map<string, DeliveryOrigin>();
+  for (const origin of origins) {
+    const key = `${origin.latitude.toFixed(5)},${origin.longitude.toFixed(5)}`;
+    if (!uniqueOrigins.has(key)) uniqueOrigins.set(key, origin);
+  }
+  const breakdown = [...uniqueOrigins.values()].map((origin) => {
+    const rawDistance = distanceBetweenKm(
+      origin.latitude,
+      origin.longitude,
+      destinationLatitude,
+      destinationLongitude,
+    );
+    const deliveryRwf =
+      freeDelivery || rawDistance === 0
+        ? 0
+        : Math.max(
+            1,
+            Math.round(
+              (rawDistance / settings.deliveryRangeKm) *
+                settings.deliveryRateRwf,
+            ),
+          );
+    return {
+      originName: origin.name,
+      distanceKm: roundedDistance(rawDistance),
+      deliveryRwf,
+    };
+  });
 
   return {
-    distanceKm: Math.round(distanceKm * 100) / 100,
-    chargeableRanges,
-    deliveryRwf: freeDelivery
-      ? 0
-      : chargeableRanges * settings.deliveryRateRwf,
+    distanceKm: roundedDistance(
+      breakdown.reduce((total, item) => total + item.distanceKm, 0),
+    ),
+    deliveryRwf: breakdown.reduce(
+      (total, item) => total + item.deliveryRwf,
+      0,
+    ),
     deliveryRateRwf: settings.deliveryRateRwf,
     deliveryRangeKm: settings.deliveryRangeKm,
     freeDelivery,
+    breakdown,
   };
 }

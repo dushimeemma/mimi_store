@@ -28,6 +28,7 @@ import {
 import { MomoService } from "./momo.service";
 import { MediaService } from "./media.service";
 import { NotificationService } from "./notification.service";
+import { GeocodingService, ResolvedLocation } from "./geocoding.service";
 import { AuthUser } from "./security";
 
 @Injectable()
@@ -37,6 +38,7 @@ export class StoreService {
     private readonly momo: MomoService,
     private readonly media:MediaService,
     private readonly notifications:NotificationService,
+    private readonly geocoding:GeocodingService,
   ) {}
 
   async dashboard() {
@@ -67,7 +69,7 @@ export class StoreService {
       where.push(`p.category_id=$${params.length}`);
     }
     const result = await this.db.query(
-      `SELECT p.id,p.name,p.category,p.category_id AS "categoryId",p.description,p.price_rwf AS "priceRwf",p.stock,p.image_url AS "imageUrl",p.image_public_id AS "imagePublicId",p.badge,p.sku,p.low_stock_threshold AS "lowStockThreshold",p.active,p.created_at AS "createdAt",p.updated_at AS "updatedAt" FROM products p ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY p.created_at DESC`,
+      `SELECT p.id,p.name,p.category,p.category_id AS "categoryId",p.description,p.price_rwf AS "priceRwf",p.stock,p.image_url AS "imageUrl",p.image_public_id AS "imagePublicId",p.badge,p.sku,p.origin_name AS "originLocationName",p.low_stock_threshold AS "lowStockThreshold",p.active,p.created_at AS "createdAt",p.updated_at AS "updatedAt" FROM products p ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY p.created_at DESC`,
       params,
     );
     return result.rows;
@@ -135,8 +137,9 @@ export class StoreService {
 
   async createProduct(dto: ProductDto, user: AuthUser) {
     const category = await this.resolveCategory(dto.categoryId, dto.category);
+    const origin = await this.geocoding.search(dto.originLocationName);
     const r = await this.db.query(
-      "INSERT INTO products(name,category,category_id,description,price_rwf,stock,image_url,image_public_id,badge,sku,low_stock_threshold,active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id",
+      "INSERT INTO products(name,category,category_id,description,price_rwf,stock,image_url,image_public_id,badge,sku,low_stock_threshold,active,origin_name,origin_latitude,origin_longitude) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id",
       [
         dto.name.trim(),
         category.name,
@@ -150,6 +153,9 @@ export class StoreService {
         dto.sku?.trim() || null,
         dto.lowStockThreshold ?? 5,
         dto.active ?? true,
+        origin.name,
+        origin.latitude,
+        origin.longitude,
       ],
     );
     if (dto.stock > 0)
@@ -168,13 +174,14 @@ export class StoreService {
 
   async updateProduct(id: string, dto: ProductDto, user: AuthUser) {
     const category = await this.resolveCategory(dto.categoryId, dto.category);
+    const origin = await this.geocoding.search(dto.originLocationName);
     const old = await this.db.query<{ stock: number;image_public_id:string|null }>(
       "SELECT stock,image_public_id FROM products WHERE id=$1",
       [id],
     );
     if (!old.rows[0]) throw new NotFoundException("Product not found");
     const r = await this.db.query(
-      "UPDATE products SET name=$2,category=$3,category_id=$4,description=$5,price_rwf=$6,stock=$7,image_url=$8,image_public_id=$9,badge=$10,sku=$11,low_stock_threshold=$12,active=$13,updated_at=now() WHERE id=$1 RETURNING id",
+      "UPDATE products SET name=$2,category=$3,category_id=$4,description=$5,price_rwf=$6,stock=$7,image_url=$8,image_public_id=$9,badge=$10,sku=$11,low_stock_threshold=$12,active=$13,origin_name=$14,origin_latitude=$15,origin_longitude=$16,updated_at=now() WHERE id=$1 RETURNING id",
       [
         id,
         dto.name.trim(),
@@ -189,6 +196,9 @@ export class StoreService {
         dto.sku?.trim() || null,
         dto.lowStockThreshold ?? 5,
         dto.active ?? true,
+        origin.name,
+        origin.latitude,
+        origin.longitude,
       ],
     );
     const delta = dto.stock - old.rows[0].stock;
@@ -276,53 +286,47 @@ export class StoreService {
   }
 
   async deliveryQuote(dto: DeliveryQuoteDto) {
-    const subtotalRwf = await this.subtotalForItems(dto.items);
+    const destination = await this.resolveDestination(
+      dto.locationName,
+      dto.latitude,
+      dto.longitude,
+    );
+    const { subtotalRwf, products } = await this.pricedProducts(dto.items);
+    const quote = calculateDeliveryQuote(
+      subtotalRwf,
+      destination.latitude,
+      destination.longitude,
+      await this.deliveryPricingSettings(),
+      this.productOrigins(products),
+    );
     return {
       subtotalRwf,
-      ...calculateDeliveryQuote(
-        subtotalRwf,
-        dto.latitude,
-        dto.longitude,
-        await this.deliveryPricingSettings(),
-      ),
+      locationName: destination.name,
+      ...quote,
+      totalRwf: subtotalRwf + quote.deliveryRwf,
+      attribution: "© OpenStreetMap contributors",
     };
   }
 
   async createOrder(dto: CreateOrderDto, user: AuthUser) {
-    if (dto.latitude === undefined || dto.longitude === undefined)
-      throw new BadRequestException(
-        "Pin the delivery location to calculate the delivery fee",
-      );
-    const unique = new Map<string, number>();
-    for (const item of dto.items)
-      unique.set(
-        item.productId,
-        (unique.get(item.productId) ?? 0) + item.quantity,
-      );
-    const ids = [...unique.keys()];
-    const products = await this.db.query<{
-      id: string;
-      name: string;
-      price_rwf: number;
-      stock: number;
-    }>(
-      "SELECT id,name,price_rwf,stock FROM products WHERE active=true AND id=ANY($1::uuid[])",
-      [ids],
+    const destination = await this.resolveDestination(
+      dto.deliveryAddress,
+      dto.latitude,
+      dto.longitude,
     );
-    if (products.rows.length !== ids.length)
-      throw new BadRequestException("One or more products are unavailable");
-    let subtotal = 0;
-    for (const product of products.rows) {
-      const quantity = unique.get(product.id)!;
+    const { quantities, products, subtotalRwf: subtotal } =
+      await this.pricedProducts(dto.items);
+    for (const product of products) {
+      const quantity = quantities.get(product.id)!;
       if (product.stock < quantity)
         throw new BadRequestException(`${product.name} has insufficient stock`);
-      subtotal += product.price_rwf * quantity;
     }
     const deliveryQuote = calculateDeliveryQuote(
       subtotal,
-      dto.latitude,
-      dto.longitude,
+      destination.latitude,
+      destination.longitude,
       await this.deliveryPricingSettings(),
+      this.productOrigins(products),
     );
     const delivery = deliveryQuote.deliveryRwf;
     const orderNumber = `MS-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 90 + 10)}`;
@@ -332,24 +336,25 @@ export class StoreService {
         order_number: string;
         total_rwf: number;
       }>(
-        "INSERT INTO orders(order_number,customer_id,subtotal_rwf,delivery_rwf,total_rwf,delivery_address,latitude,longitude,customer_phone,delivery_distance_km,delivery_rate_rwf,delivery_range_km) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id,order_number,total_rwf,subtotal_rwf,delivery_rwf,delivery_distance_km,delivery_rate_rwf,delivery_range_km",
+        "INSERT INTO orders(order_number,customer_id,subtotal_rwf,delivery_rwf,total_rwf,delivery_address,latitude,longitude,customer_phone,delivery_distance_km,delivery_rate_rwf,delivery_range_km,delivery_breakdown) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb) RETURNING id,order_number,total_rwf,subtotal_rwf,delivery_rwf,delivery_distance_km,delivery_rate_rwf,delivery_range_km,delivery_breakdown",
         [
           orderNumber,
           user.sub,
           subtotal,
           delivery,
           subtotal + delivery,
-          dto.deliveryAddress,
-          dto.latitude ?? null,
-          dto.longitude ?? null,
+          destination.name,
+          destination.latitude,
+          destination.longitude,
           dto.customerPhone,
           deliveryQuote.distanceKm,
           deliveryQuote.deliveryRateRwf,
           deliveryQuote.deliveryRangeKm,
+          JSON.stringify(deliveryQuote.breakdown),
         ],
       );
-      for (const product of products.rows) {
-        const quantity = unique.get(product.id)!;
+      for (const product of products) {
+        const quantity = quantities.get(product.id)!;
         const changed = await client.query(
           "UPDATE products SET stock=stock-$2,updated_at=now() WHERE id=$1 AND stock>=$2",
           [product.id, quantity],
@@ -400,7 +405,7 @@ export class StoreService {
       where.push(`o.status=$${params.length}`);
     }
     const r = await this.db.query(
-      `SELECT o.id,o.order_number AS "orderNumber",o.status,o.subtotal_rwf AS "subtotalRwf",o.delivery_rwf AS "deliveryRwf",o.total_rwf AS "totalRwf",o.delivery_address AS "deliveryAddress",o.latitude,o.longitude,o.delivery_distance_km AS "deliveryDistanceKm",o.delivery_rate_rwf AS "deliveryRateRwf",o.delivery_range_km AS "deliveryRangeKm",o.customer_phone AS "customerPhone",o.created_at AS "createdAt",o.updated_at AS "updatedAt",u.full_name AS "customerName",u.email AS "customerEmail",d.full_name AS "driverName",o.assigned_driver_id AS "driverId",p.id AS "paymentId",p.status AS "paymentStatus",p.provider_reference AS "paymentReference",dv.id AS "deliveryId",dv.status AS "deliveryStatus",coalesce(json_agg(json_build_object('id',oi.id,'productId',oi.product_id,'name',oi.product_name,'unitPriceRwf',oi.unit_price_rwf,'quantity',oi.quantity,'lineTotalRwf',oi.line_total_rwf)) FILTER (WHERE oi.id IS NOT NULL),'[]') AS items FROM orders o JOIN users u ON u.id=o.customer_id LEFT JOIN users d ON d.id=o.assigned_driver_id LEFT JOIN payments p ON p.order_id=o.id LEFT JOIN deliveries dv ON dv.order_id=o.id LEFT JOIN order_items oi ON oi.order_id=o.id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} GROUP BY o.id,u.full_name,u.email,d.full_name,p.id,dv.id ORDER BY o.created_at DESC LIMIT 500`,
+      `SELECT o.id,o.order_number AS "orderNumber",o.status,o.subtotal_rwf AS "subtotalRwf",o.delivery_rwf AS "deliveryRwf",o.total_rwf AS "totalRwf",o.delivery_address AS "deliveryAddress",o.delivery_distance_km AS "deliveryDistanceKm",o.delivery_rate_rwf AS "deliveryRateRwf",o.delivery_range_km AS "deliveryRangeKm",o.delivery_breakdown AS "deliveryBreakdown",o.customer_phone AS "customerPhone",o.created_at AS "createdAt",o.updated_at AS "updatedAt",u.full_name AS "customerName",u.email AS "customerEmail",d.full_name AS "driverName",o.assigned_driver_id AS "driverId",p.id AS "paymentId",p.status AS "paymentStatus",p.provider_reference AS "paymentReference",dv.id AS "deliveryId",dv.status AS "deliveryStatus",coalesce(json_agg(json_build_object('id',oi.id,'productId',oi.product_id,'name',oi.product_name,'unitPriceRwf',oi.unit_price_rwf,'quantity',oi.quantity,'lineTotalRwf',oi.line_total_rwf)) FILTER (WHERE oi.id IS NOT NULL),'[]') AS items FROM orders o JOIN users u ON u.id=o.customer_id LEFT JOIN users d ON d.id=o.assigned_driver_id LEFT JOIN payments p ON p.order_id=o.id LEFT JOIN deliveries dv ON dv.order_id=o.id LEFT JOIN order_items oi ON oi.order_id=o.id ${where.length ? `WHERE ${where.join(" AND ")}` : ""} GROUP BY o.id,u.full_name,u.email,d.full_name,p.id,dv.id ORDER BY o.created_at DESC LIMIT 500`,
       params,
     );
     return r.rows;
@@ -811,7 +816,7 @@ export class StoreService {
     return r.rows;
   }
 
-  private async subtotalForItems(items: DeliveryQuoteDto["items"]) {
+  private async pricedProducts(items: DeliveryQuoteDto["items"]) {
     const quantities = new Map<string, number>();
     for (const item of items)
       quantities.set(
@@ -819,19 +824,54 @@ export class StoreService {
         (quantities.get(item.productId) ?? 0) + item.quantity,
       );
     const ids = [...quantities.keys()];
-    const products = await this.db.query<{
+    const result = await this.db.query<{
       id: string;
+      name: string;
       price_rwf: number;
+      stock: number;
+      origin_name: string;
+      origin_latitude: string | number;
+      origin_longitude: string | number;
     }>(
-      "SELECT id,price_rwf FROM products WHERE active=true AND id=ANY($1::uuid[])",
+      `SELECT id,name,price_rwf,stock,origin_name,origin_latitude,origin_longitude FROM products WHERE active=true AND id=ANY($1::uuid[])`,
       [ids],
     );
-    if (products.rows.length !== ids.length)
+    if (result.rows.length !== ids.length)
       throw new BadRequestException("One or more products are unavailable");
-    return products.rows.reduce(
+    const subtotalRwf = result.rows.reduce(
       (total, product) =>
         total + product.price_rwf * (quantities.get(product.id) ?? 0),
       0,
+    );
+    return { quantities, products: result.rows, subtotalRwf };
+  }
+
+  private productOrigins(
+    products: Array<{
+      origin_name: string;
+      origin_latitude: string | number;
+      origin_longitude: string | number;
+    }>,
+  ) {
+    return products.map((product) => ({
+      name: product.origin_name,
+      latitude: Number(product.origin_latitude),
+      longitude: Number(product.origin_longitude),
+    }));
+  }
+
+  private async resolveDestination(
+    locationName?: string,
+    latitude?: number,
+    longitude?: number,
+  ): Promise<ResolvedLocation> {
+    if ((latitude === undefined) !== (longitude === undefined))
+      throw new BadRequestException("Both latitude and longitude are required");
+    if (latitude !== undefined && longitude !== undefined)
+      return this.geocoding.reverse(latitude, longitude);
+    if (locationName?.trim()) return this.geocoding.search(locationName);
+    throw new BadRequestException(
+      "Enter a delivery location or allow location access",
     );
   }
 
@@ -840,12 +880,6 @@ export class StoreService {
     const resolved: DeliveryPricingSettings = {
       deliveryRateRwf: Number(settings.deliveryRateRwf ?? 500),
       deliveryRangeKm: Number(settings.deliveryRangeKm ?? 1),
-      deliveryOriginLatitude: Number(
-        settings.deliveryOriginLatitude ?? -1.9441,
-      ),
-      deliveryOriginLongitude: Number(
-        settings.deliveryOriginLongitude ?? 30.0619,
-      ),
       freeDeliveryThresholdRwf: Number(
         settings.freeDeliveryThresholdRwf ?? 100000,
       ),
@@ -854,16 +888,10 @@ export class StoreService {
       !Number.isFinite(resolved.deliveryRateRwf) ||
       resolved.deliveryRateRwf < 0 ||
       !Number.isFinite(resolved.deliveryRangeKm) ||
-      resolved.deliveryRangeKm <= 0 ||
-      !Number.isFinite(resolved.deliveryOriginLatitude) ||
-      resolved.deliveryOriginLatitude < -90 ||
-      resolved.deliveryOriginLatitude > 90 ||
-      !Number.isFinite(resolved.deliveryOriginLongitude) ||
-      resolved.deliveryOriginLongitude < -180 ||
-      resolved.deliveryOriginLongitude > 180
+      resolved.deliveryRangeKm <= 0
     )
       throw new BadRequestException(
-        "Delivery pricing settings are incomplete. Ask an administrator to configure the dispatch location.",
+        "Delivery pricing settings are incomplete. Ask an administrator to configure the delivery rate.",
       );
     return resolved;
   }

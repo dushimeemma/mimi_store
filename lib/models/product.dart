@@ -16,6 +16,7 @@ class Product {
     this.badge,
     this.imageUrl,
     this.imagePublicId,
+    this.originLocationName = 'Kabuye Health Center, Kigali, Rwanda',
   });
 
   final String id;
@@ -32,6 +33,7 @@ class Product {
   final String? badge;
   final String? imageUrl;
   final String? imagePublicId;
+  final String originLocationName;
 
   factory Product.fromJson(Map<String, dynamic> json) => Product(
     id: json['id'] as String,
@@ -48,5 +50,9 @@ class Product {
     badge: json['badge'] as String?,
     imageUrl: json['imageUrl'] as String?,
     imagePublicId: json['imagePublicId'] as String?,
+    originLocationName:
+        (json['originLocationName'] ??
+                'Kabuye Health Center, Kigali, Rwanda')
+            .toString(),
   );
 }

@@ -36,6 +36,9 @@ CREATE TABLE products (
   stock integer NOT NULL DEFAULT 0 CHECK (stock >= 0),
   image_url text,
   badge text,
+  origin_name text NOT NULL DEFAULT 'Kabuye Health Center, Kigali, Rwanda',
+  origin_latitude numeric(10,7) NOT NULL DEFAULT -1.8795,
+  origin_longitude numeric(10,7) NOT NULL DEFAULT 30.0708,
   active boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -64,6 +67,7 @@ CREATE TABLE orders (
   delivery_distance_km numeric(10,2),
   delivery_rate_rwf integer CHECK (delivery_rate_rwf >= 0),
   delivery_range_km numeric(10,2) CHECK (delivery_range_km > 0),
+  delivery_breakdown jsonb NOT NULL DEFAULT '[]'::jsonb,
   customer_phone text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -96,6 +100,16 @@ CREATE TABLE payments (
 );
 CREATE INDEX payments_status_idx ON payments(status);
 
+CREATE TABLE geocoding_cache (
+  cache_key text PRIMARY KEY,
+  query text NOT NULL,
+  display_name text NOT NULL,
+  latitude numeric(10,7) NOT NULL,
+  longitude numeric(10,7) NOT NULL,
+  provider text NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 INSERT INTO app_settings(setting_key, setting_value)
-VALUES ('payment', '{"momoNumber":"+250788440177","deliveryRateRwf":500,"deliveryRangeKm":1,"deliveryOriginLatitude":-1.9441,"deliveryOriginLongitude":30.0619,"freeDeliveryThresholdRwf":100000}'::jsonb)
+VALUES ('payment', '{"momoNumber":"+250788440177","deliveryRateRwf":500,"deliveryRangeKm":1,"freeDeliveryThresholdRwf":100000}'::jsonb)
 ON CONFLICT (setting_key) DO NOTHING;
