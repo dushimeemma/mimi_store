@@ -209,6 +209,7 @@ class _AuthDialogState extends State<_AuthDialog> {
       password = TextEditingController();
   String phone = '';
   bool register = false;
+  bool passwordVisible = false;
   @override
   void dispose() {
     name.dispose();
@@ -252,9 +253,28 @@ class _AuthDialogState extends State<_AuthDialog> {
               const SizedBox(height: 12),
               TextField(
                 controller: password,
-                obscureText: true,
-                autofillHints: const [AutofillHints.password],
-                decoration: const InputDecoration(labelText: 'Password'),
+                obscureText: !passwordVisible,
+                autofillHints: [
+                  register
+                      ? AutofillHints.newPassword
+                      : AutofillHints.password,
+                ],
+                decoration: InputDecoration(
+                  labelText: 'Password',
+                  suffixIcon: IconButton(
+                    tooltip: passwordVisible
+                        ? 'Hide password'
+                        : 'Show password',
+                    onPressed: () => setState(
+                      () => passwordVisible = !passwordVisible,
+                    ),
+                    icon: Icon(
+                      passwordVisible
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                    ),
+                  ),
+                ),
               ),
               if (register) ...[
                 const SizedBox(height: 12),
@@ -280,7 +300,10 @@ class _AuthDialogState extends State<_AuthDialog> {
       TextButton(
         onPressed: widget.auth.busy
             ? null
-            : () => setState(() => register = !register),
+            : () => setState(() {
+                register = !register;
+                passwordVisible = false;
+              }),
         child: Text(register ? 'I already have an account' : 'Create account'),
       ),
       FilledButton(
