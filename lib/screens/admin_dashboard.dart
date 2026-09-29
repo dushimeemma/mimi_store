@@ -1970,26 +1970,58 @@ Future<void> _assign(
   StoreController store,
   Map<String, dynamic> order,
 ) async {
-  String? selected =
-      order['driverId']?.toString() ??
-      (store.drivers.isEmpty ? null : store.drivers.first['id'].toString());
+  final drivers = store.drivers;
+  final driverIds = drivers.map((driver) => driver['id'].toString()).toSet();
+  final currentDriverId = order['driverId']?.toString();
+  final currentDriverUnavailable =
+      currentDriverId != null && !driverIds.contains(currentDriverId);
+  String? selected = driverIds.contains(currentDriverId)
+      ? currentDriverId
+      : (drivers.isEmpty ? null : drivers.first['id'].toString());
   await showDialog(
     context: context,
     builder: (dialogContext) => StatefulBuilder(
       builder: (context, setState) => AlertDialog(
         title: Text('Assign ${order['orderNumber']}'),
-        content: DropdownButtonFormField<String>(
-          value: selected,
-          decoration: const InputDecoration(labelText: 'Motor driver'),
-          items: store.drivers
-              .map(
-                (d) => DropdownMenuItem(
-                  value: d['id'].toString(),
-                  child: Text(d['fullName'].toString()),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (currentDriverUnavailable) ...[
+                const Text(
+                  'The previously assigned driver is no longer active. Select an active driver below.',
+                  style: TextStyle(color: Colors.orange),
                 ),
-              )
-              .toList(),
-          onChanged: (v) => setState(() => selected = v),
+                const SizedBox(height: 12),
+              ],
+              if (drivers.isEmpty)
+                const Text(
+                  'No active motor drivers are available. Activate or create a driver account first.',
+                )
+              else
+                DropdownButtonFormField<String>(
+                  value: selected,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Motor driver'),
+                  items: drivers
+                      .map(
+                        (driver) => DropdownMenuItem<String>(
+                          value: driver['id'].toString(),
+                          child: Text(
+                            driver['fullName']?.toString() ??
+                                driver['email']?.toString() ??
+                                'Motor driver',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) => setState(() => selected = value),
+                ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -1997,7 +2029,7 @@ Future<void> _assign(
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: selected == null
+            onPressed: selected == null || drivers.isEmpty
                 ? null
                 : () async {
                     try {

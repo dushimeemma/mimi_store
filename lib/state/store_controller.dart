@@ -63,9 +63,18 @@ class StoreController extends ChangeNotifier {
       ? 0
       : (quotedDeliveryRwf ?? 0);
   int get totalRwf => subtotalRwf + deliveryRwf;
-  List<Map<String, dynamic>> get drivers => users
-      .where((user) => user['role'] == 'driver' && user['isActive'] == true)
-      .toList();
+  List<Map<String, dynamic>> get drivers {
+    final uniqueDrivers = <String, Map<String, dynamic>>{};
+    for (final user in users) {
+      final id = user['id']?.toString().trim() ?? '';
+      if (id.isNotEmpty &&
+          user['role'] == 'driver' &&
+          user['isActive'] == true) {
+        uniqueDrivers.putIfAbsent(id, () => user);
+      }
+    }
+    return uniqueDrivers.values.toList(growable: false);
+  }
 
   Future<void> initialize() async {
     loading = true;
