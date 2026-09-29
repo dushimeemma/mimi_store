@@ -21,6 +21,7 @@ export class ProductDto {
   @IsOptional() @IsString() @Length(1, 40) badge?: string;
   @IsOptional() @IsString() categoryId?: string;
   @IsOptional() @IsString() @Length(1, 80) sku?: string;
+  @IsString() @Length(3, 300) originLocationName!: string;
   @IsOptional() @IsInt() @Min(0) lowStockThreshold?: number;
   @IsOptional() @IsBoolean() active?: boolean;
 }
@@ -51,8 +52,9 @@ export class CreateOrderDto {
 }
 export class DeliveryQuoteDto {
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => OrderItemDto) items!: OrderItemDto[];
-  @IsLatitude() latitude!: number;
-  @IsLongitude() longitude!: number;
+  @IsOptional() @IsString() @Length(3, 300) locationName?: string;
+  @IsOptional() @IsLatitude() latitude?: number;
+  @IsOptional() @IsLongitude() longitude?: number;
 }
 export class AssignDriverDto { @IsString() driverId!: string; }
 export class OrderStatusDto { @IsIn(['ready_for_pickup', 'out_for_delivery', 'delivered', 'cancelled']) status!: string; }
@@ -67,8 +69,6 @@ export class PaymentSettingsDto {
   @IsString() @Length(10, 20) momoNumber!: string;
   @IsInt() @Min(0) @Max(1000000) deliveryRateRwf!: number;
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.1) @Max(1000) deliveryRangeKm!: number;
-  @IsLatitude() deliveryOriginLatitude!: number;
-  @IsLongitude() deliveryOriginLongitude!: number;
   @IsInt() @Min(0) freeDeliveryThresholdRwf!: number;
   @IsOptional() @IsIn(['manual','momo_api']) paymentMode?: string;
 }

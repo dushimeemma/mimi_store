@@ -14,12 +14,11 @@ class StoreController extends ChangeNotifier {
   String paymentMode = 'manual';
   int configuredDeliveryRateRwf = 500;
   double configuredDeliveryRangeKm = 1;
-  double deliveryOriginLatitude = -1.9441;
-  double deliveryOriginLongitude = 30.0619;
   int freeDeliveryThresholdRwf = 100000;
   int? quotedDeliveryRwf;
   double? quotedDistanceKm;
-  int? quotedChargeableRanges;
+  String? resolvedDeliveryLocationName;
+  List<Map<String, dynamic>> deliveryBreakdown = [];
   String selectedCategory = 'All';
   String searchQuery = '';
   final Map<String, int> _cart = {};
@@ -176,25 +175,31 @@ class StoreController extends ChangeNotifier {
   void clearDeliveryQuote({bool notify = true}) {
     quotedDeliveryRwf = null;
     quotedDistanceKm = null;
-    quotedChargeableRanges = null;
+    resolvedDeliveryLocationName = null;
+    deliveryBreakdown = [];
     if (notify) notifyListeners();
   }
 
-  Future<Map<String, dynamic>> quoteDelivery(
-    double latitude,
-    double longitude,
-  ) async {
+  Future<Map<String, dynamic>> quoteDelivery({
+    String? locationName,
+    double? latitude,
+    double? longitude,
+  }) async {
     final quote = await api.deliveryQuote(
       items: cartItems.entries
           .map((item) => {'productId': item.key.id, 'quantity': item.value})
           .toList(),
       latitude: latitude,
       longitude: longitude,
+      locationName: locationName,
     );
     quotedDeliveryRwf = ((quote['deliveryRwf'] ?? 0) as num).toInt();
     quotedDistanceKm = ((quote['distanceKm'] ?? 0) as num).toDouble();
-    quotedChargeableRanges =
-        ((quote['chargeableRanges'] ?? 0) as num).toInt();
+    resolvedDeliveryLocationName = quote['locationName']?.toString();
+    deliveryBreakdown = ((quote['breakdown'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((item) => item.cast<String, dynamic>())
+        .toList();
     notifyListeners();
     return quote;
   }
@@ -264,8 +269,6 @@ class StoreController extends ChangeNotifier {
     String number,
     int rate,
     double rangeKm,
-    double originLatitude,
-    double originLongitude,
     int threshold,
     String mode,
   ) async {
@@ -273,8 +276,6 @@ class StoreController extends ChangeNotifier {
       number,
       rate,
       rangeKm,
-      originLatitude,
-      originLongitude,
       threshold,
       mode,
     );
@@ -312,12 +313,6 @@ class StoreController extends ChangeNotifier {
         ((value['deliveryRateRwf'] ?? configuredDeliveryRateRwf) as num).toInt();
     configuredDeliveryRangeKm =
         ((value['deliveryRangeKm'] ?? configuredDeliveryRangeKm) as num)
-            .toDouble();
-    deliveryOriginLatitude =
-        ((value['deliveryOriginLatitude'] ?? deliveryOriginLatitude) as num)
-            .toDouble();
-    deliveryOriginLongitude =
-        ((value['deliveryOriginLongitude'] ?? deliveryOriginLongitude) as num)
             .toDouble();
     freeDeliveryThresholdRwf =
         ((value['freeDeliveryThresholdRwf'] ?? freeDeliveryThresholdRwf) as num)

@@ -3,7 +3,7 @@
 | Capability | Customer | Motor Driver | Admin | Super Admin |
 | --- | --- | --- | --- | --- |
 | Browse/search catalogue and categories | Yes | Yes | Yes | Yes |
-| Cart, checkout, address and GPS pin | Yes | — | — | — |
+| Cart, checkout, place-name search and optional GPS | Yes | — | — | — |
 | View own orders | Yes | — | — | — |
 | View assigned deliveries | — | Yes | Yes | Yes |
 | Update assigned delivery progress | — | Yes | Yes | Yes |
@@ -22,7 +22,7 @@
 ## Operational safeguards
 
 - Totals are recalculated by the API from current database prices.
-- Delivery fees are recalculated by the API from the customer's GPS pin and the configured dispatch point; the client cannot submit a fee.
+- Delivery fees are recalculated by the API from each distinct product pickup location to the resolved customer destination; the client cannot submit coordinates derived from a place name or a fee.
 - The payment amount includes products and delivery. The API exposes only paid orders to fulfilment and blocks driver assignment or delivery updates until payment succeeds.
 - Stock is reserved transactionally when an order is created.
 - Cancelling an eligible order restores stock and records inventory movements.

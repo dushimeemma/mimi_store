@@ -1,7 +1,6 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl_phone_field/intl_phone_field.dart';
 
@@ -412,6 +411,13 @@ class _ProductsPage extends StatelessWidget {
                                             .colorScheme
                                             .onSurfaceVariant,
                                 ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Pickup: ${p.originLocationName}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall,
                               ),
                               const SizedBox(height: 14),
                               Row(
@@ -1095,8 +1101,7 @@ class _SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<_SettingsPage> {
-  late final TextEditingController rate, rangeKm, originLatitude,
-      originLongitude, threshold, name, email;
+  late final TextEditingController rate, rangeKm, threshold, name, email;
   late String mode, momoNumber, supportPhone;
   @override
   void initState() {
@@ -1109,12 +1114,6 @@ class _SettingsPageState extends State<_SettingsPage> {
     );
     rangeKm = TextEditingController(
       text: '${widget.store.configuredDeliveryRangeKm}',
-    );
-    originLatitude = TextEditingController(
-      text: '${widget.store.deliveryOriginLatitude}',
-    );
-    originLongitude = TextEditingController(
-      text: '${widget.store.deliveryOriginLongitude}',
     );
     threshold = TextEditingController(
       text: '${widget.store.freeDeliveryThresholdRwf}',
@@ -1133,8 +1132,6 @@ class _SettingsPageState extends State<_SettingsPage> {
     for (final c in [
       rate,
       rangeKm,
-      originLatitude,
-      originLongitude,
       threshold,
       name,
       email,
@@ -1186,7 +1183,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                   controller: rate,
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
-                    labelText: 'Delivery price per range (RWF)',
+                    labelText: 'Delivery rate per range (RWF)',
                     helperText: 'Default: 500 RWF',
                   ),
                 ),
@@ -1198,48 +1195,10 @@ class _SettingsPageState extends State<_SettingsPage> {
                   ),
                   decoration: const InputDecoration(
                     labelText: 'Distance range (km)',
-                    helperText: 'Default: charge the price for every started 1 km',
+                    helperText: 'The rate is calculated proportionally; default: 1 km',
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: originLatitude,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                          signed: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Dispatch latitude',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextField(
-                        controller: originLongitude,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                          signed: true,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'Dispatch longitude',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: _useCurrentDispatchLocation,
-                    icon: const Icon(Icons.my_location),
-                    label: const Text('Use current location as dispatch point'),
-                  ),
-                ),
-                const SizedBox(height: 4),
                 TextField(
                   controller: threshold,
                   keyboardType: TextInputType.number,
@@ -1257,8 +1216,6 @@ class _SettingsPageState extends State<_SettingsPage> {
                               momoNumber,
                               int.tryParse(rate.text) ?? 0,
                               double.tryParse(rangeKm.text) ?? 0,
-                              double.tryParse(originLatitude.text) ?? 100,
-                              double.tryParse(originLongitude.text) ?? 200,
                               int.tryParse(threshold.text) ?? 0,
                               mode,
                             ),
@@ -1326,39 +1283,6 @@ class _SettingsPageState extends State<_SettingsPage> {
     ],
   );
 
-  Future<void> _useCurrentDispatchLocation() async {
-    try {
-      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        throw Exception(
-          'Location services are turned off. Enable location and try again.',
-        );
-      }
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied) {
-        throw Exception('Location permission was not granted.');
-      }
-      if (permission == LocationPermission.deniedForever) {
-        throw Exception(
-          'Location access is blocked. Enable it for Mimi Store in your phone settings.',
-        );
-      }
-      final position = await Geolocator.getCurrentPosition();
-      if (!mounted) return;
-      setState(() {
-        originLatitude.text = position.latitude.toStringAsFixed(7);
-        originLongitude.text = position.longitude.toStringAsFixed(7);
-      });
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString())),
-      );
-    }
-  }
   String _national(String value) {
     final digits = value.replaceAll(RegExp(r'\D'), '');
     if (digits.startsWith('250')) return digits.substring(3);
@@ -1420,7 +1344,8 @@ class _ProductDialogState extends State<_ProductDialog> {
       price,
       stock,
       badge,
-      low;
+      low,
+      originLocation;
   String? categoryId, selectedImageName, selectedImageMime;
   Uint8List? selectedImageBytes;
   bool active = true, busy = false;
@@ -1436,6 +1361,11 @@ class _ProductDialogState extends State<_ProductDialog> {
     stock = TextEditingController(text: p == null ? '0' : '${p.stock}');
     badge = TextEditingController(text: p?.badge);
     low = TextEditingController(text: '${p?.lowStockThreshold ?? 5}');
+    originLocation = TextEditingController(
+      text:
+          p?.originLocationName ??
+          'Kabuye Health Center, Kigali, Rwanda',
+    );
     categoryId =
         p?.categoryId ??
         (widget.store.categories.isEmpty
@@ -1446,7 +1376,16 @@ class _ProductDialogState extends State<_ProductDialog> {
 
   @override
   void dispose() {
-    for (final c in [name, sku, description, price, stock, badge, low]) {
+    for (final c in [
+      name,
+      sku,
+      description,
+      price,
+      stock,
+      badge,
+      low,
+      originLocation,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -1519,6 +1458,25 @@ class _ProductDialogState extends State<_ProductDialog> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: originLocation,
+              decoration: const InputDecoration(
+                labelText: 'Product pickup location',
+                hintText: 'Building, neighbourhood, city, country',
+                helperText: 'Used to calculate customer delivery distance',
+              ),
+            ),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  '© OpenStreetMap contributors',
+                  style: TextStyle(fontSize: 11),
+                ),
+              ),
             ),
             const SizedBox(height: 10),
             TextField(
@@ -1624,7 +1582,8 @@ class _ProductDialogState extends State<_ProductDialog> {
         .firstOrNull;
     if (name.text.trim().length < 2 ||
         category == null ||
-        int.tryParse(price.text) == null) {
+        int.tryParse(price.text) == null ||
+        originLocation.text.trim().length < 3) {
       _toast(context, 'Complete the required product fields');
       return;
     }
@@ -1652,6 +1611,7 @@ class _ProductDialogState extends State<_ProductDialog> {
         'stock': int.tryParse(stock.text) ?? 0,
         'lowStockThreshold': int.tryParse(low.text) ?? 5,
         'active': active,
+        'originLocationName': originLocation.text.trim(),
         if (sku.text.trim().isNotEmpty) 'sku': sku.text.trim(),
         if (imageUrl?.isNotEmpty == true) 'imageUrl': imageUrl,
         if (imagePublicId?.isNotEmpty == true) 'imagePublicId': imagePublicId,

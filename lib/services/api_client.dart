@@ -114,16 +114,19 @@ class ApiClient {
   ) as Map<String, dynamic>;
   Future<Map<String, dynamic>> deliveryQuote({
     required List<Map<String, dynamic>> items,
-    required double latitude,
-    required double longitude,
+    String? locationName,
+    double? latitude,
+    double? longitude,
   }) async => await _request(
     'POST',
     '/delivery/quote',
     authenticated: false,
     body: {
       'items': items,
-      'latitude': latitude,
-      'longitude': longitude,
+      if (locationName?.trim().isNotEmpty == true)
+        'locationName': locationName!.trim(),
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
     },
   ) as Map<String, dynamic>;
   Future<Map<String, dynamic>> initiatePayment(String orderId) async =>
@@ -284,8 +287,6 @@ class ApiClient {
     String number,
     int rate,
     double rangeKm,
-    double originLatitude,
-    double originLongitude,
     int threshold,
     String paymentMode,
   ) async {
@@ -296,8 +297,6 @@ class ApiClient {
         'momoNumber': number,
         'deliveryRateRwf': rate,
         'deliveryRangeKm': rangeKm,
-        'deliveryOriginLatitude': originLatitude,
-        'deliveryOriginLongitude': originLongitude,
         'freeDeliveryThresholdRwf': threshold,
         'paymentMode': paymentMode,
       },
