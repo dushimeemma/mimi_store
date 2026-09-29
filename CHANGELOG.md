@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.0+20
+
+- Added readable customer destination lookup and server-side geocoding without exposing coordinates in customer views.
+- Added a configurable pickup location to every product, defaulting existing products to Kabuye Health Center, Kigali.
+- Changed delivery pricing to a proportional distance calculation and included the resulting fee in the amount loaded into USSD.
+- Added cached, rate-limited OpenStreetMap Nominatim lookups and per-origin delivery breakdowns.
+
 ## 1.3.2+19
 
 - Made the delivery fee visible in the checkout summary, USSD payment card, mobile confirmation dialog and desktop payment instructions.
