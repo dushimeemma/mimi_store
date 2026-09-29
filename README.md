@@ -102,13 +102,18 @@ For a physical phone, use the API's HTTPS URL. Plain HTTP is intentionally not r
 
 ## 4. Release builds
 
+Configure the private Android upload key described in `docs/PLATFORM_SETUP.md` before building a release APK or App Bundle.
+
 ```bash
 flutter analyze
 flutter test
+flutter build apk --release --dart-define=API_BASE_URL=https://api.your-domain.rw/api/v1
 flutter build appbundle --release --dart-define=API_BASE_URL=https://api.your-domain.rw/api/v1
 flutter build ipa --release --dart-define=API_BASE_URL=https://api.your-domain.rw/api/v1
 flutter build web --release --dart-define=API_BASE_URL=https://api.your-domain.rw/api/v1
 ```
+
+The universal Android review APK is created at `build/app/outputs/flutter-apk/app-release.apk`. Use the App Bundle (`.aab`) for Google Play submission.
 
 ## 5. Manual payment workflow
 

@@ -1,4 +1,4 @@
-package com.example.mimi_store
+package rw.mimistore.app
 
 import io.flutter.embedding.android.FlutterActivity
 

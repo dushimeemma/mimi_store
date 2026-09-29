@@ -18,7 +18,16 @@ Manual payment uses the external phone dialer through a `tel:` URL. It does not 
 
 Android displays the location permission prompt only when the customer taps **Use my location**. A customer can instead enter a readable street, neighbourhood or landmark. Only foreground location is requested; background location is not required.
 
-Configure a unique application ID such as `rw.mimistore.app`, upload signing, Play App Signing and a release keystore outside the repository.
+The production application ID is `rw.mimistore.app`. Create a private Android upload keystore outside source control, then copy `android/key.properties.example` to `android/key.properties` locally and replace every placeholder:
+
+```properties
+storePassword=YOUR_PRIVATE_STORE_PASSWORD
+keyPassword=YOUR_PRIVATE_KEY_PASSWORD
+keyAlias=mimi-store-upload
+storeFile=../upload-keystore.jks
+```
+
+Both `android/key.properties` and Android keystore files are ignored by Git. Back up the keystore and its passwords securely: losing them can prevent future application updates. Release builds intentionally fail when signing is not configured. Enable Play App Signing when publishing to Google Play.
 
 ## iOS
 
